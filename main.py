@@ -3,6 +3,7 @@ import chess
 import chess.engine
 import sys
 from pathlib import Path
+import math
 
 # Initialize Pygame
 pygame.init()
@@ -14,6 +15,7 @@ WHITE = (240, 217, 181)
 BLACK = (181, 136, 99)
 HIGHLIGHT = (255, 255, 0, 128)
 MOVE_HINT = (0, 255, 0, 64)
+ANIMATION_SPEED = 8  # Higher = faster animation
 
 # Initialize display
 screen = pygame.display.set_mode((BOARD_SIZE, BOARD_SIZE))
@@ -59,11 +61,16 @@ def draw_board(surface):
                               SQUARE_SIZE, SQUARE_SIZE)
             pygame.draw.rect(surface, color, rect)
 
-# Draw pieces
-def draw_pieces(surface, board, pieces):
+# Draw pieces (modified to handle animations)
+def draw_pieces(surface, board, pieces, animating_piece=None, animated_squares=None):
     for row in range(8):
         for col in range(8):
             square = chess.square(col, 7 - row)  # Flip board vertically
+            
+            # Skip drawing piece if it's being animated
+            if animated_squares and square in animated_squares:
+                continue
+                
             piece = board.piece_at(square)
             if piece:
                 piece_image = pieces[piece.symbol()]
@@ -93,9 +100,15 @@ def draw_possible_moves(surface, board, square):
             if move.from_square == square:
                 col = chess.square_file(move.to_square)
                 row = 7 - chess.square_rank(move.to_square)
-                hint_surface = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
-                hint_surface.fill(MOVE_HINT)
-                surface.blit(hint_surface, (col * SQUARE_SIZE, row * SQUARE_SIZE))
+                # Draw a circle in the center of valid move squares
+                center_x = col * SQUARE_SIZE + SQUARE_SIZE // 2
+                center_y = row * SQUARE_SIZE + SQUARE_SIZE // 2
+                
+                # Check if there's a piece to capture
+                if board.piece_at(move.to_square):
+                    pygame.draw.circle(surface, (255, 0, 0, 100), (center_x, center_y), 20, 3)
+                else:
+                    pygame.draw.circle(surface, (0, 150, 0, 150), (center_x, center_y), 10)
 
 # Draw hint arrow
 def draw_hint(surface, move):
@@ -143,17 +156,61 @@ def draw_hint_text(surface):
 
 def draw_last_move(surface, move):
     if move:
-        # Highlight the last move squares
+        # Highlight the last move squares with subtle color
         from_col = chess.square_file(move.from_square)
         from_row = 7 - chess.square_rank(move.from_square)
         to_col = chess.square_file(move.to_square)
         to_row = 7 - chess.square_rank(move.to_square)
         
-        # Draw with a blue-ish highlight
+        # Draw with a subtle yellow highlight
         last_move_surface = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
-        last_move_surface.fill((100, 100, 255, 80))
+        last_move_surface.fill((255, 255, 100, 50))
         surface.blit(last_move_surface, (from_col * SQUARE_SIZE, from_row * SQUARE_SIZE))
         surface.blit(last_move_surface, (to_col * SQUARE_SIZE, to_row * SQUARE_SIZE))
+
+# Animation class for smooth piece movement
+class PieceAnimation:
+    def __init__(self, piece, from_square, to_square, piece_image):
+        self.piece = piece
+        self.from_square = from_square
+        self.to_square = to_square
+        self.piece_image = piece_image
+        
+        # Calculate pixel positions
+        from_col = chess.square_file(from_square)
+        from_row = 7 - chess.square_rank(from_square)
+        to_col = chess.square_file(to_square)
+        to_row = 7 - chess.square_rank(to_square)
+        
+        self.start_x = from_col * SQUARE_SIZE + (SQUARE_SIZE - piece_image.get_width()) // 2
+        self.start_y = from_row * SQUARE_SIZE + (SQUARE_SIZE - piece_image.get_height()) // 2
+        self.end_x = to_col * SQUARE_SIZE + (SQUARE_SIZE - piece_image.get_width()) // 2
+        self.end_y = to_row * SQUARE_SIZE + (SQUARE_SIZE - piece_image.get_height()) // 2
+        
+        self.current_x = float(self.start_x)
+        self.current_y = float(self.start_y)
+        
+        # Calculate distance and speed
+        self.dx = self.end_x - self.start_x
+        self.dy = self.end_y - self.start_y
+        self.distance = math.sqrt(self.dx ** 2 + self.dy ** 2)
+        self.progress = 0.0
+        
+    def update(self):
+        if self.progress < 1.0:
+            # Smooth easing function (ease-in-out)
+            self.progress = min(1.0, self.progress + ANIMATION_SPEED / 60.0)
+            
+            # Use sine function for smooth acceleration/deceleration
+            eased_progress = (math.sin((self.progress - 0.5) * math.pi) + 1) / 2
+            
+            self.current_x = self.start_x + self.dx * eased_progress
+            self.current_y = self.start_y + self.dy * eased_progress
+            return False  # Animation not complete
+        return True  # Animation complete
+    
+    def draw(self, surface):
+        surface.blit(self.piece_image, (int(self.current_x), int(self.current_y)))
 
 # Main game class
 class ChessGame:
@@ -170,10 +227,12 @@ class ChessGame:
         self.engine_thinking = False  # Flag for when engine is thinking
         self.engine_move_pending = None  # Store pending engine move
         self.engine_move_timer = 0  # Timer for delayed move
+        self.current_animation = None  # Current piece animation
+        self.animation_board = None  # Board state during animation
         
     def get_hint(self):
         """Get the best move suggestion from Stockfish"""
-        if not self.game_over and self.board.turn == self.player_color:
+        if not self.game_over and self.board.turn == self.player_color and not self.current_animation:
             # Get Stockfish's recommendation
             result = self.engine.play(self.board, chess.engine.Limit(time=0.5))
             self.hint_move = result.move
@@ -198,8 +257,17 @@ class ChessGame:
             return result.move
         return None
     
+    def start_animation(self, move):
+        """Start animating a piece move"""
+        piece = self.board.piece_at(move.from_square)
+        if piece:
+            piece_image = self.pieces[piece.symbol()]
+            self.current_animation = PieceAnimation(piece, move.from_square, move.to_square, piece_image)
+            # Store board state before move for drawing
+            self.animation_board = self.board.copy()
+    
     def handle_click(self, pos):
-        if self.game_over or self.board.turn != self.player_color:
+        if self.game_over or self.board.turn != self.player_color or self.current_animation:
             return
         
         # Clear hint when making a move
@@ -223,8 +291,10 @@ class ChessGame:
                 move = chess.Move(self.selected_square, square, promotion=chess.QUEEN)
             
             if move in self.board.legal_moves:
+                # Start animation
+                self.start_animation(move)
                 self.board.push(move)
-                self.last_move = move  # Store last move
+                self.last_move = move
                 self.selected_square = None
                 
                 # Check game over
@@ -240,13 +310,13 @@ class ChessGame:
                     self.selected_square = None
 
     def make_engine_move(self):
-        if not self.game_over and self.board.turn != self.player_color:
+        if not self.game_over and self.board.turn != self.player_color and not self.current_animation:
             if not self.engine_thinking and self.engine_move_pending is None:
                 # Start thinking
                 self.engine_thinking = True
                 result = self.engine.play(self.board, chess.engine.Limit(time=1.0))
                 self.engine_move_pending = result.move
-                self.engine_move_timer = pygame.time.get_ticks() + 1500  # 1.5 second delay
+                self.engine_move_timer = pygame.time.get_ticks() + 500  # 0.5 second delay before moving
                 
                 # Show what piece will be moved
                 from_square = chess.square_name(result.move.from_square)
@@ -261,11 +331,13 @@ class ChessGame:
                     chess.KING: "King"
                 }.get(piece.piece_type, "Piece")
                 
-                print(f"🤖 Stockfish is moving: {piece_name} from {from_square} to {to_square}")
+                print(f"🤖 Stockfish: {piece_name} {from_square} → {to_square}")
                 self.engine_thinking = False
             
             # Check if it's time to make the pending move
             if self.engine_move_pending and pygame.time.get_ticks() >= self.engine_move_timer:
+                # Start animation for engine move
+                self.start_animation(self.engine_move_pending)
                 self.board.push(self.engine_move_pending)
                 self.last_move = self.engine_move_pending
                 self.engine_move_pending = None
@@ -277,6 +349,14 @@ class ChessGame:
                 if self.board.is_game_over():
                     self.game_over = True
                     print("Game Over!", self.get_result())
+    
+    def update_animation(self):
+        """Update current animation"""
+        if self.current_animation:
+            if self.current_animation.update():
+                # Animation complete
+                self.current_animation = None
+                self.animation_board = None
     
     def get_result(self):
         if self.board.is_checkmate():
@@ -294,33 +374,33 @@ class ChessGame:
         draw_board(surface)
         
         # Draw last move highlight
-        if self.last_move:
+        if self.last_move and not self.current_animation:
             draw_last_move(surface, self.last_move)
         
-        # Draw pending engine move preview
-        if self.engine_move_pending:
-            draw_last_move(surface, self.engine_move_pending)
-        
         draw_selection(surface, self.selected_square)
-        draw_possible_moves(surface, self.board, self.selected_square)
+        
+        # Only show possible moves when not animating
+        if not self.current_animation:
+            draw_possible_moves(surface, self.board, self.selected_square)
         
         # Draw hint if active
         if self.show_hint and self.hint_move:
             draw_hint(surface, self.hint_move)
         
-        draw_pieces(surface, self.board, self.pieces)
+        # Draw pieces
+        if self.current_animation:
+            # Draw board without the animating piece
+            animated_squares = [self.current_animation.from_square, self.current_animation.to_square]
+            draw_pieces(surface, self.animation_board, self.pieces, animating_piece=self.current_animation, animated_squares=animated_squares)
+            # Draw the animating piece
+            self.current_animation.draw(surface)
+        else:
+            draw_pieces(surface, self.board, self.pieces)
         
-        # Draw hint button and status
+        # Draw hint button
         draw_hint_button(surface)
         if self.show_hint:
             draw_hint_text(surface)
-        
-        # Draw "thinking" indicator when engine is calculating
-        if self.engine_move_pending:
-            font = pygame.font.Font(None, 36)
-            text = font.render("Stockfish is thinking...", True, (255, 0, 0))
-            text_rect = text.get_rect(center=(BOARD_SIZE // 2, BOARD_SIZE // 2))
-            surface.blit(text, text_rect)
     
     def cleanup(self):
         self.engine.quit()
@@ -361,6 +441,9 @@ def main():
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_h:  # Press H for hint
                     game.get_hint()
+        
+        # Update animation
+        game.update_animation()
         
         # Make engine move if it's the engine's turn
         if not game.game_over and game.board.turn != game.player_color:
