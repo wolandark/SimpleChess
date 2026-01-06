@@ -50,7 +50,6 @@ def load_pieces():
     
     return pieces
 
-
 # Draw the board
 def draw_board(surface):
     for row in range(8):
@@ -98,6 +97,64 @@ def draw_possible_moves(surface, board, square):
                 hint_surface.fill(MOVE_HINT)
                 surface.blit(hint_surface, (col * SQUARE_SIZE, row * SQUARE_SIZE))
 
+# Draw hint arrow
+def draw_hint(surface, move):
+    if move:
+        # Get coordinates for from and to squares
+        from_col = chess.square_file(move.from_square)
+        from_row = 7 - chess.square_rank(move.from_square)
+        to_col = chess.square_file(move.to_square)
+        to_row = 7 - chess.square_rank(move.to_square)
+        
+        # Calculate center points of squares
+        from_x = from_col * SQUARE_SIZE + SQUARE_SIZE // 2
+        from_y = from_row * SQUARE_SIZE + SQUARE_SIZE // 2
+        to_x = to_col * SQUARE_SIZE + SQUARE_SIZE // 2
+        to_y = to_row * SQUARE_SIZE + SQUARE_SIZE // 2
+        
+        # Draw arrow for hint
+        pygame.draw.line(surface, (255, 0, 255), (from_x, from_y), (to_x, to_y), 5)
+        
+        # Draw arrow head
+        pygame.draw.circle(surface, (255, 0, 255), (to_x, to_y), 10)
+        
+        # Highlight the squares
+        hint_surface = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
+        hint_surface.fill((255, 0, 255, 100))
+        surface.blit(hint_surface, (from_col * SQUARE_SIZE, from_row * SQUARE_SIZE))
+        surface.blit(hint_surface, (to_col * SQUARE_SIZE, to_row * SQUARE_SIZE))
+
+# Draw hint button
+def draw_hint_button(surface):
+    button_rect = pygame.Rect(BOARD_SIZE - 100, 10, 90, 30)
+    pygame.draw.rect(surface, (100, 200, 100), button_rect)
+    pygame.draw.rect(surface, (0, 0, 0), button_rect, 2)
+    
+    font = pygame.font.Font(None, 24)
+    text = font.render("Hint (H)", True, (0, 0, 0))
+    text_rect = text.get_rect(center=button_rect.center)
+    surface.blit(text, text_rect)
+
+# Draw hint text
+def draw_hint_text(surface):
+    font = pygame.font.Font(None, 20)
+    text = font.render("Best move shown in purple", True, (255, 0, 255))
+    surface.blit(text, (10, 10))
+
+def draw_last_move(surface, move):
+    if move:
+        # Highlight the last move squares
+        from_col = chess.square_file(move.from_square)
+        from_row = 7 - chess.square_rank(move.from_square)
+        to_col = chess.square_file(move.to_square)
+        to_row = 7 - chess.square_rank(move.to_square)
+        
+        # Draw with a blue-ish highlight
+        last_move_surface = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
+        last_move_surface.fill((100, 100, 255, 80))
+        surface.blit(last_move_surface, (from_col * SQUARE_SIZE, from_row * SQUARE_SIZE))
+        surface.blit(last_move_surface, (to_col * SQUARE_SIZE, to_row * SQUARE_SIZE))
+
 # Main game class
 class ChessGame:
     def __init__(self, stockfish_path):
@@ -107,10 +164,47 @@ class ChessGame:
         self.selected_square = None
         self.player_color = chess.WHITE  # Player is white
         self.game_over = False
+        self.hint_move = None  # Store the hint move
+        self.show_hint = False  # Toggle hint display
+        self.last_move = None  # Store last move for highlighting
+        self.engine_thinking = False  # Flag for when engine is thinking
+        self.engine_move_pending = None  # Store pending engine move
+        self.engine_move_timer = 0  # Timer for delayed move
         
+    def get_hint(self):
+        """Get the best move suggestion from Stockfish"""
+        if not self.game_over and self.board.turn == self.player_color:
+            # Get Stockfish's recommendation
+            result = self.engine.play(self.board, chess.engine.Limit(time=0.5))
+            self.hint_move = result.move
+            self.show_hint = True
+            
+            # Print hint to console as well
+            from_square = chess.square_name(result.move.from_square)
+            to_square = chess.square_name(result.move.to_square)
+            
+            # Get piece name for clearer hint
+            piece = self.board.piece_at(result.move.from_square)
+            piece_name = {
+                chess.PAWN: "Pawn",
+                chess.KNIGHT: "Knight", 
+                chess.BISHOP: "Bishop",
+                chess.ROOK: "Rook",
+                chess.QUEEN: "Queen",
+                chess.KING: "King"
+            }.get(piece.piece_type, "Piece")
+            
+            print(f"💡 Hint: Move {piece_name} from {from_square} to {to_square}")
+            return result.move
+        return None
+    
     def handle_click(self, pos):
         if self.game_over or self.board.turn != self.player_color:
             return
+        
+        # Clear hint when making a move
+        self.show_hint = False
+        self.hint_move = None
         
         square = get_square_from_mouse(pos)
         
@@ -130,6 +224,7 @@ class ChessGame:
             
             if move in self.board.legal_moves:
                 self.board.push(move)
+                self.last_move = move  # Store last move
                 self.selected_square = None
                 
                 # Check game over
@@ -143,15 +238,45 @@ class ChessGame:
                     self.selected_square = square
                 else:
                     self.selected_square = None
-    
+
     def make_engine_move(self):
         if not self.game_over and self.board.turn != self.player_color:
-            result = self.engine.play(self.board, chess.engine.Limit(time=1.0))
-            self.board.push(result.move)
+            if not self.engine_thinking and self.engine_move_pending is None:
+                # Start thinking
+                self.engine_thinking = True
+                result = self.engine.play(self.board, chess.engine.Limit(time=1.0))
+                self.engine_move_pending = result.move
+                self.engine_move_timer = pygame.time.get_ticks() + 1500  # 1.5 second delay
+                
+                # Show what piece will be moved
+                from_square = chess.square_name(result.move.from_square)
+                to_square = chess.square_name(result.move.to_square)
+                piece = self.board.piece_at(result.move.from_square)
+                piece_name = {
+                    chess.PAWN: "Pawn",
+                    chess.KNIGHT: "Knight", 
+                    chess.BISHOP: "Bishop",
+                    chess.ROOK: "Rook",
+                    chess.QUEEN: "Queen",
+                    chess.KING: "King"
+                }.get(piece.piece_type, "Piece")
+                
+                print(f"🤖 Stockfish is moving: {piece_name} from {from_square} to {to_square}")
+                self.engine_thinking = False
             
-            if self.board.is_game_over():
-                self.game_over = True
-                print("Game Over!", self.get_result())
+            # Check if it's time to make the pending move
+            if self.engine_move_pending and pygame.time.get_ticks() >= self.engine_move_timer:
+                self.board.push(self.engine_move_pending)
+                self.last_move = self.engine_move_pending
+                self.engine_move_pending = None
+                
+                # Clear any hint after engine moves
+                self.show_hint = False
+                self.hint_move = None
+                
+                if self.board.is_game_over():
+                    self.game_over = True
+                    print("Game Over!", self.get_result())
     
     def get_result(self):
         if self.board.is_checkmate():
@@ -167,9 +292,35 @@ class ChessGame:
     
     def draw(self, surface):
         draw_board(surface)
+        
+        # Draw last move highlight
+        if self.last_move:
+            draw_last_move(surface, self.last_move)
+        
+        # Draw pending engine move preview
+        if self.engine_move_pending:
+            draw_last_move(surface, self.engine_move_pending)
+        
         draw_selection(surface, self.selected_square)
         draw_possible_moves(surface, self.board, self.selected_square)
+        
+        # Draw hint if active
+        if self.show_hint and self.hint_move:
+            draw_hint(surface, self.hint_move)
+        
         draw_pieces(surface, self.board, self.pieces)
+        
+        # Draw hint button and status
+        draw_hint_button(surface)
+        if self.show_hint:
+            draw_hint_text(surface)
+        
+        # Draw "thinking" indicator when engine is calculating
+        if self.engine_move_pending:
+            font = pygame.font.Font(None, 36)
+            text = font.render("Stockfish is thinking...", True, (255, 0, 0))
+            text_rect = text.get_rect(center=(BOARD_SIZE // 2, BOARD_SIZE // 2))
+            surface.blit(text, text_rect)
     
     def cleanup(self):
         self.engine.quit()
@@ -177,7 +328,7 @@ class ChessGame:
 # Main game loop
 def main():
     # CHANGE THIS PATH to where you extracted stockfish.exe
-    STOCKFISH_PATH = r"C:\Users\woland\Downloads\stockfish-windows-x86-64-avx2\stockfish\stockfish-windows-x86-64-avx2.exe"  # Update this!
+    STOCKFISH_PATH = r"C:\Users\woland\Downloads\stockfish-windows-x86-64-avx2\stockfish\stockfish-windows-x86-64-avx2.exe"
     
     # Check if stockfish exists
     if not Path(STOCKFISH_PATH).exists():
@@ -190,13 +341,26 @@ def main():
     game = ChessGame(STOCKFISH_PATH)
     running = True
     
+    print("=== Chess Game Started ===")
+    print("Press 'H' for hint")
+    print("Click pieces to move")
+    print("=========================")
+    
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Left click
-                    game.handle_click(event.pos)
+                    # Check if hint button clicked
+                    button_rect = pygame.Rect(BOARD_SIZE - 100, 10, 90, 30)
+                    if button_rect.collidepoint(event.pos):
+                        game.get_hint()
+                    else:
+                        game.handle_click(event.pos)
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_h:  # Press H for hint
+                    game.get_hint()
         
         # Make engine move if it's the engine's turn
         if not game.game_over and game.board.turn != game.player_color:
