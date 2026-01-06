@@ -140,7 +140,7 @@ class MenuBar:
             x += text_width
     
     def draw(self, surface):
-        # Draw menu bar background
+        # Draw menu bar background and titles
         pygame.draw.rect(surface, MENU_BG, (0, 0, FULL_WIDTH, MENU_BAR_HEIGHT))
         pygame.draw.line(surface, MENU_BORDER, (0, MENU_BAR_HEIGHT - 1), (FULL_WIDTH, MENU_BAR_HEIGHT - 1))
         
@@ -151,16 +151,62 @@ class MenuBar:
             text = self.font.render(menu.title, True, MENU_TEXT)
             text_rect = text.get_rect(center=menu.rect.center)
             surface.blit(text, text_rect)
-        
-        # Draw active dropdown
+    
+    def draw_dropdowns(self, surface):
+        # Draw active dropdown (called last so it appears on top)
         if self.active_menu:
             self._draw_dropdown(surface, self.active_menu)
     
     def _draw_dropdown(self, surface, menu):
         if not menu.items:
             return
+        
+        # Ensure rects are calculated
+        self._calculate_dropdown_rects(menu)
+        
+        max_width = 180
+        item_height = 28
+        dropdown_x = menu.dropdown_rect.left
+        dropdown_y = menu.dropdown_rect.top
+        
+        # Draw dropdown background with shadow
+        shadow_rect = menu.dropdown_rect.copy()
+        shadow_rect.x += 3
+        shadow_rect.y += 3
+        pygame.draw.rect(surface, (20, 20, 20), shadow_rect)
+        pygame.draw.rect(surface, MENU_DROPDOWN_BG, menu.dropdown_rect)
+        pygame.draw.rect(surface, MENU_BORDER, menu.dropdown_rect, 1)
+        
+        # Draw items
+        y = dropdown_y
+        mouse_pos = pygame.mouse.get_pos()
+        for item in menu.items:
+            if item.text == "separator":
+                pygame.draw.line(surface, MENU_BORDER, (dropdown_x + 5, y + 4), (dropdown_x + max_width - 5, y + 4))
+                y += 8
+            else:
+                # Hover effect
+                if item.rect and item.rect.collidepoint(mouse_pos):
+                    pygame.draw.rect(surface, (70, 130, 180), item.rect)
+                
+                # Checkmark for checkable items
+                text_x = dropdown_x + 10
+                if item.checkable:
+                    if item.checked:
+                        check = self.font.render("✓", True, (100, 200, 100))
+                        surface.blit(check, (dropdown_x + 8, y + 5))
+                    text_x = dropdown_x + 28
+                
+                # Item text
+                text = self.font.render(item.text, True, MENU_TEXT)
+                surface.blit(text, (text_x, y + 5))
+                y += item_height
+    
+    def _calculate_dropdown_rects(self, menu):
+        """Calculate rectangles for dropdown and its items"""
+        if not menu.items:
+            return
             
-        # Calculate dropdown size
         max_width = 180
         item_height = 28
         total_height = 0
@@ -179,58 +225,48 @@ class MenuBar:
         
         menu.dropdown_rect = pygame.Rect(dropdown_x, dropdown_y, max_width, total_height)
         
-        # Draw dropdown background with shadow
-        shadow_rect = menu.dropdown_rect.copy()
-        shadow_rect.x += 3
-        shadow_rect.y += 3
-        pygame.draw.rect(surface, (20, 20, 20), shadow_rect)
-        pygame.draw.rect(surface, MENU_DROPDOWN_BG, menu.dropdown_rect)
-        pygame.draw.rect(surface, MENU_BORDER, menu.dropdown_rect, 1)
-        
-        # Draw items
+        # Calculate item rects
         y = dropdown_y
-        mouse_pos = pygame.mouse.get_pos()
         for item in menu.items:
             if item.text == "separator":
-                pygame.draw.line(surface, MENU_BORDER, (dropdown_x + 5, y + 4), (dropdown_x + max_width - 5, y + 4))
+                item.rect = None
                 y += 8
             else:
                 item.rect = pygame.Rect(dropdown_x, y, max_width, item_height)
-                # Hover effect
-                if item.rect.collidepoint(mouse_pos):
-                    pygame.draw.rect(surface, (70, 130, 180), item.rect)
-                
-                # Checkmark for checkable items
-                text_x = dropdown_x + 10
-                if item.checkable:
-                    if item.checked:
-                        check = self.font.render("✓", True, (100, 200, 100))
-                        surface.blit(check, (dropdown_x + 8, y + 5))
-                    text_x = dropdown_x + 28
-                
-                # Item text
-                text = self.font.render(item.text, True, MENU_TEXT)
-                surface.blit(text, (text_x, y + 5))
                 y += item_height
     
     def handle_click(self, pos):
+        print(f"DEBUG: Click at {pos}, active_menu={self.active_menu.title if self.active_menu else None}")
+        
         # Check if clicked on menu title
         for menu in self.menus:
             if menu.rect.collidepoint(pos):
+                print(f"DEBUG: Clicked on menu title: {menu.title}")
                 if self.active_menu == menu:
                     self.active_menu = None
                 else:
                     self.active_menu = menu
+                    # Calculate dropdown rects immediately when menu opens
+                    self._calculate_dropdown_rects(menu)
                 return True
         
         # Check if clicked on dropdown item
-        if self.active_menu and self.active_menu.dropdown_rect:
-            if self.active_menu.dropdown_rect.collidepoint(pos):
+        if self.active_menu:
+            # Ensure rects are calculated
+            self._calculate_dropdown_rects(self.active_menu)
+            print(f"DEBUG: Dropdown rect: {self.active_menu.dropdown_rect}")
+            
+            if self.active_menu.dropdown_rect and self.active_menu.dropdown_rect.collidepoint(pos):
+                print(f"DEBUG: Click is inside dropdown")
                 for item in self.active_menu.items:
                     if item.rect and item.rect.collidepoint(pos) and item.text != "separator":
+                        print(f"DEBUG: Clicked on item: {item.text}")
                         self._execute_action(item)
                         self.active_menu = None
                         return True
+                print(f"DEBUG: No item matched")
+            else:
+                print(f"DEBUG: Click is outside dropdown, closing menu")
         
         # Clicked outside - close menu
         if self.active_menu:
@@ -853,6 +889,10 @@ class ChessGame:
 		]
 		self.showing_dialog = True
 	
+	def _draw_menu_bar_background(self, surface):
+		"""Draw just the menu bar (dropdowns drawn later)"""
+		self.menu_bar.draw(surface)
+	
 	def draw_dialog(self, surface):
 		"""Draw modal dialog overlay"""
 		if not self.showing_dialog:
@@ -1081,8 +1121,8 @@ class ChessGame:
 			return "Draw!"
 	
 	def draw(self, surface):
-		# Draw menu bar first
-		self.menu_bar.draw(surface)
+		# Draw menu bar background (but not dropdowns yet)
+		self._draw_menu_bar_background(surface)
 		
 		draw_board(surface, self.board_flipped, self.show_coordinates)
 		
@@ -1116,6 +1156,9 @@ class ChessGame:
 		hint_button_rect = draw_hint_button(surface)
 		if self.show_hint:
 			draw_hint_text(surface)
+		
+		# Draw menu dropdowns LAST so they appear on top of everything
+		self.menu_bar.draw_dropdowns(surface)
 		
 		# Draw dialog if showing
 		self.draw_dialog(surface)
