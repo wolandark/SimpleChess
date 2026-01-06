@@ -7,6 +7,25 @@ import math
 
 # Initialize Pygame
 pygame.init()
+pygame.mixer.init()
+
+# Load sounds
+def load_sounds():
+    sounds = {}
+    try:
+        sounds['move'] = pygame.mixer.Sound('sfx/move.wav')
+        sounds['capture'] = pygame.mixer.Sound('sfx/capture.wav')
+        # Adjust volume (0.0 to 1.0)
+        sounds['move'].set_volume(0.5)
+        sounds['capture'].set_volume(0.6)
+        print("✓ Sounds loaded successfully")
+    except Exception as e:
+        print(f"Warning: Could not load sounds - {e}")
+        print("Playing without sound")
+    return sounds
+
+# Load sounds globally
+SOUNDS = load_sounds()
 
 # Constants
 BOARD_SIZE = 640
@@ -234,8 +253,8 @@ class ChessGame:
 		self.engine_move_timer = 0	# Timer for delayed move
 		self.current_animation = None  # Current piece animation
 		self.animation_board = None  # Board state during animation
-	
 		self.move_history = []
+		self.sounds = SOUNDS  # Add this line after other initializations
 
 	# # Add this method to ChessGame class
 	# def add_to_history(self, move):
@@ -263,8 +282,17 @@ class ChessGame:
 				self.move_history.append(f"{move_number}... {san}")
 		else:  # White just moved
 			self.move_history.append(f"{move_number}. {san}")
+			
+	def play_move_sound(self, move):
+		if self.sounds:
+			if self.board.is_capture(move):
+				if 'capture' in self.sounds:
+					self.sounds['capture'].play()
+			else:
+				if 'move' in self.sounds:
+					self.sounds['move'].play()
 
-	
+
 	def draw_info_panel(self, surface):
 		# Draw panel background
 		panel_rect = pygame.Rect(BOARD_SIZE, 0, INFO_PANEL_WIDTH, BOARD_SIZE)
@@ -362,6 +390,7 @@ class ChessGame:
 				# Start animation
 				self.start_animation(move)
 				self.add_to_history(move)  # ADD THIS LINE
+				self.play_move_sound(move)  # ADD THIS LINE
 				self.board.push(move)
 				self.last_move = move
 				self.selected_square = None
@@ -407,6 +436,7 @@ class ChessGame:
 			if self.engine_move_pending and pygame.time.get_ticks() >= self.engine_move_timer:
 				# Start animation for engine move
 				self.start_animation(self.engine_move_pending)
+				self.play_move_sound(self.engine_move_pending)  # ADD THIS LINE
 				self.add_to_history(self.engine_move_pending)  # ADD THIS LINE
 				self.board.push(self.engine_move_pending)
 				self.last_move = self.engine_move_pending
