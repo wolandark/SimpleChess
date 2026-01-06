@@ -1,7 +1,9 @@
 import pygame
 import chess
 import chess.engine
+import chess.pgn
 import sys
+import io
 from pathlib import Path
 import math
 from datetime import datetime
@@ -114,12 +116,15 @@ class MenuBar:
             MenuItem("Reset Settings", action="reset_settings"),
         ])
         
-        # Export menu
-        export_menu = Menu("Export", [
+        # File menu (import/export)
+        file_menu = Menu("File", [
+            MenuItem("Load PGN...", action="load_pgn"),
+            MenuItem("Load FEN...", action="load_fen"),
+            MenuItem("separator"),
             MenuItem("Export PGN...", action="export_pgn"),
             MenuItem("Copy PGN to Clipboard", action="copy_pgn"),
             MenuItem("separator"),
-            MenuItem("Export FEN", action="export_fen"),
+            MenuItem("Export FEN...", action="export_fen"),
             MenuItem("Copy FEN to Clipboard", action="copy_fen"),
         ])
         
@@ -129,7 +134,7 @@ class MenuBar:
             MenuItem("About", action="show_about"),
         ])
         
-        self.menus = [game_menu, difficulty_menu, options_menu, export_menu, help_menu]
+        self.menus = [game_menu, file_menu, difficulty_menu, options_menu, help_menu]
         self._calculate_menu_positions()
     
     def _calculate_menu_positions(self):
@@ -236,12 +241,9 @@ class MenuBar:
                 y += item_height
     
     def handle_click(self, pos):
-        print(f"DEBUG: Click at {pos}, active_menu={self.active_menu.title if self.active_menu else None}")
-        
         # Check if clicked on menu title
         for menu in self.menus:
             if menu.rect.collidepoint(pos):
-                print(f"DEBUG: Clicked on menu title: {menu.title}")
                 if self.active_menu == menu:
                     self.active_menu = None
                 else:
@@ -254,19 +256,13 @@ class MenuBar:
         if self.active_menu:
             # Ensure rects are calculated
             self._calculate_dropdown_rects(self.active_menu)
-            print(f"DEBUG: Dropdown rect: {self.active_menu.dropdown_rect}")
             
             if self.active_menu.dropdown_rect and self.active_menu.dropdown_rect.collidepoint(pos):
-                print(f"DEBUG: Click is inside dropdown")
                 for item in self.active_menu.items:
                     if item.rect and item.rect.collidepoint(pos) and item.text != "separator":
-                        print(f"DEBUG: Clicked on item: {item.text}")
                         self._execute_action(item)
                         self.active_menu = None
                         return True
-                print(f"DEBUG: No item matched")
-            else:
-                print(f"DEBUG: Click is outside dropdown, closing menu")
         
         # Clicked outside - close menu
         if self.active_menu:
@@ -315,6 +311,10 @@ class MenuBar:
             self.game.toggle_coordinates(item.checked)
         elif action == "reset_settings":
             self.game.reset_settings()
+        elif action == "load_pgn":
+            self.game.load_pgn()
+        elif action == "load_fen":
+            self.game.load_fen()
         elif action == "export_pgn":
             self.game.export_pgn()
         elif action == "copy_pgn":
@@ -845,6 +845,126 @@ class ChessGame:
 			with open(filename, 'w') as f:
 				f.write(self.board.fen())
 			print(f"✓ Position exported to {filename}")
+	
+	def load_pgn(self):
+		"""Load a game from PGN file"""
+		root = tk.Tk()
+		root.withdraw()
+		
+		filename = filedialog.askopenfilename(
+			filetypes=[("PGN files", "*.pgn"), ("All files", "*.*")],
+			title="Load PGN Game"
+		)
+		
+		root.destroy()
+		
+		if filename:
+			try:
+				with open(filename, 'r') as f:
+					pgn_text = f.read()
+				
+				# Parse PGN using chess library
+				pgn_io = io.StringIO(pgn_text)
+				game = chess.pgn.read_game(pgn_io)
+				
+				if game is None:
+					print("✗ Error: Could not parse PGN file")
+					return
+				
+				# Reset the board
+				self.board = chess.Board()
+				self.move_history = []
+				self.game_moves = []
+				self.selected_square = None
+				self.last_move = None
+				self.game_over = False
+				self.hint_move = None
+				self.show_hint = False
+				
+				# Play through all the moves
+				for move in game.mainline_moves():
+					self.add_to_history(move)
+					self.game_moves.append(move)
+					self.board.push(move)
+					self.last_move = move
+				
+				# Check if game is over
+				if self.board.is_game_over():
+					self.game_over = True
+				
+				print(f"✓ Loaded game from {filename}")
+				print(f"  {len(self.game_moves)} moves loaded")
+				
+				# Show headers if available
+				if game.headers.get("White"):
+					print(f"  White: {game.headers.get('White')}")
+				if game.headers.get("Black"):
+					print(f"  Black: {game.headers.get('Black')}")
+				if game.headers.get("Result"):
+					print(f"  Result: {game.headers.get('Result')}")
+					
+			except Exception as e:
+				print(f"✗ Error loading PGN: {e}")
+	
+	def load_fen(self):
+		"""Load a position from FEN string or file"""
+		root = tk.Tk()
+		root.withdraw()
+		
+		# First try to get from clipboard
+		try:
+			clipboard_text = root.clipboard_get()
+		except:
+			clipboard_text = ""
+		
+		root.destroy()
+		
+		# Check if clipboard contains a valid FEN
+		fen_to_load = None
+		if clipboard_text:
+			try:
+				test_board = chess.Board(clipboard_text.strip())
+				fen_to_load = clipboard_text.strip()
+				print(f"Found FEN in clipboard")
+			except:
+				pass
+		
+		# If no valid FEN in clipboard, open file dialog
+		if not fen_to_load:
+			root = tk.Tk()
+			root.withdraw()
+			
+			filename = filedialog.askopenfilename(
+				filetypes=[("FEN files", "*.fen"), ("Text files", "*.txt"), ("All files", "*.*")],
+				title="Load FEN Position"
+			)
+			
+			root.destroy()
+			
+			if filename:
+				try:
+					with open(filename, 'r') as f:
+						fen_to_load = f.read().strip()
+				except Exception as e:
+					print(f"✗ Error reading file: {e}")
+					return
+		
+		if fen_to_load:
+			try:
+				self.board = chess.Board(fen_to_load)
+				self.move_history = []
+				self.game_moves = []
+				self.selected_square = None
+				self.last_move = None
+				self.game_over = self.board.is_game_over()
+				self.hint_move = None
+				self.show_hint = False
+				self.game_start_time = datetime.now()
+				
+				print(f"✓ Position loaded from FEN")
+				print(f"  {fen_to_load}")
+			except Exception as e:
+				print(f"✗ Invalid FEN: {e}")
 	
 	def copy_fen(self):
 		"""Copy FEN to clipboard"""
