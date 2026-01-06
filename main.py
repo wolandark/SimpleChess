@@ -366,9 +366,65 @@ def load_pieces():
 		font = pygame.font.Font(None, 60)
 	
 	for key, unicode_char in piece_map.items():
-		color = (255, 255, 255) if key.isupper() else (0, 0, 0)
-		text_surface = font.render(unicode_char, True, color)
-		pieces[key] = text_surface
+		is_white = key.isupper()
+		
+		if is_white:
+			# White pieces: cream/ivory color with dark outline
+			main_color = (255, 248, 220)  # Cream/cornsilk color
+			outline_color = (60, 40, 20)  # Dark brown outline
+			
+			# Render the outline first (slightly larger or offset)
+			outline_surface = font.render(unicode_char, True, outline_color)
+			main_surface = font.render(unicode_char, True, main_color)
+			
+			# Create a surface large enough for the outline effect
+			padding = 3
+			w = main_surface.get_width() + padding * 2
+			h = main_surface.get_height() + padding * 2
+			piece_surface = pygame.Surface((w, h), pygame.SRCALPHA)
+			
+			# Draw outline by rendering at offsets
+			offsets = [(-2, -2), (-2, 0), (-2, 2), (0, -2), (0, 2), (2, -2), (2, 0), (2, 2),
+					   (-1, -1), (-1, 1), (1, -1), (1, 1)]
+			for ox, oy in offsets:
+				piece_surface.blit(outline_surface, (padding + ox, padding + oy))
+			
+			# Draw main piece on top
+			piece_surface.blit(main_surface, (padding, padding))
+			pieces[key] = piece_surface
+		else:
+			# Black pieces: Use filled symbol in white as base, outline symbol in black on top
+			# This creates black pieces with white internal details showing through
+			
+			# Map outline symbols to their filled counterparts for the base layer
+			filled_map = {'♙': '♟', '♘': '♞', '♗': '♝', '♖': '♜', '♕': '♛', '♔': '♚'}
+			filled_char = filled_map.get(unicode_char, unicode_char)
+			
+			# Render white filled base (for interior detail)
+			base_color = (0, 0, 0)  # Off-white for interior
+			base_surface = font.render(filled_char, True, base_color)
+			
+			# Render black outline on top
+			outline_color = (220, 220, 220)  # Rich black
+			outline_surface = font.render(unicode_char, True, outline_color)
+			
+			# Match the padding of white pieces for consistent sizing
+			padding = 3
+			w = max(base_surface.get_width(), outline_surface.get_width()) + padding * 2
+			h = max(base_surface.get_height(), outline_surface.get_height()) + padding * 2
+			piece_surface = pygame.Surface((w, h), pygame.SRCALPHA)
+			
+			# Draw white filled base first
+			bx = (w - base_surface.get_width()) // 2
+			by = (h - base_surface.get_height()) // 2
+			piece_surface.blit(base_surface, (bx, by))
+			
+			# Draw black outline on top
+			ox = (w - outline_surface.get_width()) // 2
+			oy = (h - outline_surface.get_height()) // 2
+			piece_surface.blit(outline_surface, (ox, oy))
+			
+			pieces[key] = piece_surface
 	
 	return pieces
 
