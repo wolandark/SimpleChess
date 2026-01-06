@@ -491,23 +491,39 @@ def draw_hint(surface, move, flipped=False):
 		surface.blit(hint_surface, (from_col * SQUARE_SIZE, from_row * SQUARE_SIZE + MENU_BAR_HEIGHT))
 		surface.blit(hint_surface, (to_col * SQUARE_SIZE, to_row * SQUARE_SIZE + MENU_BAR_HEIGHT))
 
-# Draw hint button
-def draw_hint_button(surface):
-	button_rect = pygame.Rect(BOARD_SIZE - 100, MENU_BAR_HEIGHT + 10, 90, 30)
-	pygame.draw.rect(surface, (100, 200, 100), button_rect)
-	pygame.draw.rect(surface, (0, 0, 0), button_rect, 2)
+# Draw hint button in menu bar (rightmost corner)
+def draw_hint_button(surface, hint_active=False):
+	# Position in the right corner of menu bar
+	button_size = MENU_BAR_HEIGHT - 4
+	button_rect = pygame.Rect(FULL_WIDTH - button_size - 8, 2, button_size, button_size)
 	
-	font = pygame.font.Font(None, 24)
-	text = font.render("Hint (H)", True, (0, 0, 0))
-	text_rect = text.get_rect(center=button_rect.center)
-	surface.blit(text, text_rect)
+	# Button background - highlight if hint is active
+	if hint_active:
+		bg_color = (255, 200, 50)  # Golden yellow when active
+	else:
+		mouse_pos = pygame.mouse.get_pos()
+		bg_color = MENU_HOVER if button_rect.collidepoint(mouse_pos) else MENU_BG
+	
+	pygame.draw.rect(surface, bg_color, button_rect, border_radius=4)
+	pygame.draw.rect(surface, MENU_BORDER, button_rect, 1, border_radius=4)
+	
+	# Draw lightbulb icon using Unicode character
+	font = pygame.font.SysFont('segoeuisymbol', 18)
+	icon = font.render("💡", True, (255, 220, 50) if not hint_active else (80, 60, 0))
+	icon_rect = icon.get_rect(center=button_rect.center)
+	surface.blit(icon, icon_rect)
+	
 	return button_rect
 
-# Draw hint text
+# Draw hint text overlay on board
 def draw_hint_text(surface):
 	font = pygame.font.Font(None, 20)
-	text = font.render("Best move shown in purple", True, (255, 0, 255))
-	surface.blit(text, (10, MENU_BAR_HEIGHT + 10))
+	# Semi-transparent background for text
+	text = font.render("Best move shown in purple (H to toggle)", True, (255, 0, 255))
+	text_bg = pygame.Surface((text.get_width() + 10, text.get_height() + 6), pygame.SRCALPHA)
+	text_bg.fill((0, 0, 0, 150))
+	surface.blit(text_bg, (5, MENU_BAR_HEIGHT + 5))
+	surface.blit(text, (10, MENU_BAR_HEIGHT + 8))
 
 def draw_last_move(surface, move, flipped=False):
 	if move:
@@ -618,6 +634,9 @@ class ChessGame:
 		self.showing_dialog = False
 		self.dialog_text = []
 		self.dialog_title = ""
+		
+		# Hint button rect (updated during draw)
+		self.hint_button_rect = None
 
 	# # Add this method to ChessGame class
 	# def add_to_history(self, move):
@@ -1272,10 +1291,10 @@ class ChessGame:
 		else:
 			draw_pieces(surface, self.board, self.pieces, flipped=self.board_flipped)
 		
-		# Draw hint button
-		hint_button_rect = draw_hint_button(surface)
-		if self.show_hint:
-			draw_hint_text(surface)
+		# Draw hint button in menu bar
+		self.hint_button_rect = draw_hint_button(surface, self.show_hint)
+		# if self.show_hint:
+			# draw_hint_text(surface)
 		
 		# Draw menu dropdowns LAST so they appear on top of everything
 		self.menu_bar.draw_dropdowns(surface)
@@ -1314,6 +1333,11 @@ def main():
 				running = False
 			elif event.type == pygame.MOUSEBUTTONDOWN:
 				if event.button == 1:  # Left click
+					# Check if hint button clicked (in menu bar)
+					if hasattr(game, 'hint_button_rect') and game.hint_button_rect and game.hint_button_rect.collidepoint(event.pos):
+						game.get_hint()
+						continue
+					
 					# First check if clicking in menu area
 					if game.menu_bar.handle_click(event.pos):
 						continue
@@ -1323,12 +1347,8 @@ def main():
 						game.showing_dialog = False
 						continue
 					
-					# Check if hint button clicked
-					button_rect = pygame.Rect(BOARD_SIZE - 100, MENU_BAR_HEIGHT + 10, 90, 30)
-					if button_rect.collidepoint(event.pos):
-						game.get_hint()
-					else:
-						game.handle_click(event.pos)
+					# Handle board clicks
+					game.handle_click(event.pos)
 			elif event.type == pygame.MOUSEMOTION:
 				# Handle menu hover for switching between open menus
 				game.menu_bar.handle_hover(event.pos)
