@@ -393,36 +393,38 @@ def load_pieces():
 			piece_surface.blit(main_surface, (padding, padding))
 			pieces[key] = piece_surface
 		else:
-			# Black pieces: Use filled symbol in white as base, outline symbol in black on top
-			# This creates black pieces with white internal details showing through
+			# Black pieces: Solid black with light internal detail lines
+			# Black fill at offsets for size, light details only on top (no glow)
 			
-			# Map outline symbols to their filled counterparts for the base layer
+			# Map outline symbols to their filled counterparts
 			filled_map = {'♙': '♟', '♘': '♞', '♗': '♝', '♖': '♜', '♕': '♛', '♔': '♚'}
 			filled_char = filled_map.get(unicode_char, unicode_char)
 			
-			# Render white filled base (for interior detail)
-			base_color = (0, 0, 0)  # Off-white for interior
-			base_surface = font.render(filled_char, True, base_color)
+			# Colors
+			fill_color = (0, 0, 0)  # Black fill
+			detail_color = (200, 200, 200)  # Light gray for internal details
 			
-			# Render black outline on top
-			outline_color = (220, 220, 220)  # Rich black
-			outline_surface = font.render(unicode_char, True, outline_color)
+			# Render surfaces
+			fill_surface = font.render(filled_char, True, fill_color)
+			detail_surface = font.render(unicode_char, True, detail_color)
 			
 			# Match the padding of white pieces for consistent sizing
 			padding = 3
-			w = max(base_surface.get_width(), outline_surface.get_width()) + padding * 2
-			h = max(base_surface.get_height(), outline_surface.get_height()) + padding * 2
+			w = fill_surface.get_width() + padding * 2
+			h = fill_surface.get_height() + padding * 2
 			piece_surface = pygame.Surface((w, h), pygame.SRCALPHA)
 			
-			# Draw white filled base first
-			bx = (w - base_surface.get_width()) // 2
-			by = (h - base_surface.get_height()) // 2
-			piece_surface.blit(base_surface, (bx, by))
+			# Draw BLACK fill at offsets (makes piece fuller, no glow)
+			offsets = [(-2, -2), (-2, 0), (-2, 2), (0, -2), (0, 2), (2, -2), (2, 0), (2, 2),
+					   (-1, -1), (-1, 1), (1, -1), (1, 1)]
+			for ox, oy in offsets:
+				piece_surface.blit(fill_surface, (padding + ox, padding + oy))
 			
-			# Draw black outline on top
-			ox = (w - outline_surface.get_width()) // 2
-			oy = (h - outline_surface.get_height()) // 2
-			piece_surface.blit(outline_surface, (ox, oy))
+			# Draw black filled center
+			piece_surface.blit(fill_surface, (padding, padding))
+			
+			# Draw light detail lines ONCE on top (internal details only, no outer glow)
+			piece_surface.blit(detail_surface, (padding, padding))
 			
 			pieces[key] = piece_surface
 	
