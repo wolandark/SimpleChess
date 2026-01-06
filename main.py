@@ -4,6 +4,9 @@ import chess.engine
 import sys
 from pathlib import Path
 import math
+from datetime import datetime
+from tkinter import filedialog
+import tkinter as tk
 
 # Initialize Pygame
 pygame.init()
@@ -28,6 +31,7 @@ def load_sounds():
 SOUNDS = load_sounds()
 
 # Constants
+MENU_BAR_HEIGHT = 30
 BOARD_SIZE = 640
 SQUARE_SIZE = BOARD_SIZE // 8
 WHITE = (240, 217, 181)
@@ -38,10 +42,266 @@ ANIMATION_SPEED = 8  # Higher = faster animation
 INFO_PANEL_WIDTH = 200
 FULL_WIDTH = BOARD_SIZE + INFO_PANEL_WIDTH
 
+# Menu colors
+MENU_BG = (50, 50, 50)
+MENU_HOVER = (80, 80, 80)
+MENU_TEXT = (220, 220, 220)
+MENU_BORDER = (30, 30, 30)
+MENU_DROPDOWN_BG = (60, 60, 60)
+
+# Difficulty settings
+DIFFICULTY_SETTINGS = {
+    "Beginner": {"time": 0.1, "depth": 3},
+    "Easy": {"time": 0.3, "depth": 6},
+    "Medium": {"time": 0.8, "depth": 10},
+    "Hard": {"time": 1.5, "depth": 15},
+    "Expert": {"time": 2.5, "depth": 20},
+    "Master": {"time": 5.0, "depth": None},  # None = no depth limit
+}
 
 # Update screen initialization
-screen = pygame.display.set_mode((FULL_WIDTH, BOARD_SIZE))
+screen = pygame.display.set_mode((FULL_WIDTH, BOARD_SIZE + MENU_BAR_HEIGHT))
 pygame.display.set_caption("Chess vs Stockfish")
+
+
+class MenuItem:
+    def __init__(self, text, action=None, submenu=None, checkable=False, checked=False):
+        self.text = text
+        self.action = action
+        self.submenu = submenu  # For nested menus
+        self.checkable = checkable
+        self.checked = checked
+        self.rect = None
+
+class Menu:
+    def __init__(self, title, items):
+        self.title = title
+        self.items = items
+        self.rect = None
+        self.is_open = False
+        self.dropdown_rect = None
+
+class MenuBar:
+    def __init__(self, game):
+        self.game = game
+        self.font = pygame.font.Font(None, 22)
+        self.menus = []
+        self.active_menu = None
+        self.setup_menus()
+        
+    def setup_menus(self):
+        # Game menu
+        game_menu = Menu("Game", [
+            MenuItem("New Game", action="new_game"),
+            MenuItem("Undo Move", action="undo"),
+            MenuItem("separator"),
+            MenuItem("Flip Board", action="flip_board", checkable=True),
+            MenuItem("separator"),
+            MenuItem("Exit", action="exit"),
+        ])
+        
+        # Difficulty menu
+        difficulty_items = []
+        for diff_name in DIFFICULTY_SETTINGS.keys():
+            difficulty_items.append(MenuItem(diff_name, action=f"difficulty_{diff_name}", checkable=True, checked=(diff_name == "Medium")))
+        difficulty_menu = Menu("Difficulty", difficulty_items)
+        
+        # Options menu
+        options_menu = Menu("Options", [
+            MenuItem("Sound Effects", action="toggle_sound", checkable=True, checked=True),
+            MenuItem("Show Coordinates", action="toggle_coords", checkable=True, checked=True),
+            MenuItem("separator"),
+            MenuItem("Reset Settings", action="reset_settings"),
+        ])
+        
+        # Export menu
+        export_menu = Menu("Export", [
+            MenuItem("Export PGN...", action="export_pgn"),
+            MenuItem("Copy PGN to Clipboard", action="copy_pgn"),
+            MenuItem("separator"),
+            MenuItem("Export FEN", action="export_fen"),
+            MenuItem("Copy FEN to Clipboard", action="copy_fen"),
+        ])
+        
+        # Help menu
+        help_menu = Menu("Help", [
+            MenuItem("Controls", action="show_controls"),
+            MenuItem("About", action="show_about"),
+        ])
+        
+        self.menus = [game_menu, difficulty_menu, options_menu, export_menu, help_menu]
+        self._calculate_menu_positions()
+    
+    def _calculate_menu_positions(self):
+        x = 10
+        for menu in self.menus:
+            text_width = self.font.size(menu.title)[0] + 20
+            menu.rect = pygame.Rect(x, 0, text_width, MENU_BAR_HEIGHT)
+            x += text_width
+    
+    def draw(self, surface):
+        # Draw menu bar background
+        pygame.draw.rect(surface, MENU_BG, (0, 0, FULL_WIDTH, MENU_BAR_HEIGHT))
+        pygame.draw.line(surface, MENU_BORDER, (0, MENU_BAR_HEIGHT - 1), (FULL_WIDTH, MENU_BAR_HEIGHT - 1))
+        
+        # Draw menu titles
+        for menu in self.menus:
+            bg_color = MENU_HOVER if (self.active_menu == menu or menu.rect.collidepoint(pygame.mouse.get_pos())) else MENU_BG
+            pygame.draw.rect(surface, bg_color, menu.rect)
+            text = self.font.render(menu.title, True, MENU_TEXT)
+            text_rect = text.get_rect(center=menu.rect.center)
+            surface.blit(text, text_rect)
+        
+        # Draw active dropdown
+        if self.active_menu:
+            self._draw_dropdown(surface, self.active_menu)
+    
+    def _draw_dropdown(self, surface, menu):
+        if not menu.items:
+            return
+            
+        # Calculate dropdown size
+        max_width = 180
+        item_height = 28
+        total_height = 0
+        for item in menu.items:
+            if item.text == "separator":
+                total_height += 8
+            else:
+                total_height += item_height
+        
+        dropdown_x = menu.rect.left
+        dropdown_y = MENU_BAR_HEIGHT
+        
+        # Keep dropdown on screen
+        if dropdown_x + max_width > FULL_WIDTH:
+            dropdown_x = FULL_WIDTH - max_width
+        
+        menu.dropdown_rect = pygame.Rect(dropdown_x, dropdown_y, max_width, total_height)
+        
+        # Draw dropdown background with shadow
+        shadow_rect = menu.dropdown_rect.copy()
+        shadow_rect.x += 3
+        shadow_rect.y += 3
+        pygame.draw.rect(surface, (20, 20, 20), shadow_rect)
+        pygame.draw.rect(surface, MENU_DROPDOWN_BG, menu.dropdown_rect)
+        pygame.draw.rect(surface, MENU_BORDER, menu.dropdown_rect, 1)
+        
+        # Draw items
+        y = dropdown_y
+        mouse_pos = pygame.mouse.get_pos()
+        for item in menu.items:
+            if item.text == "separator":
+                pygame.draw.line(surface, MENU_BORDER, (dropdown_x + 5, y + 4), (dropdown_x + max_width - 5, y + 4))
+                y += 8
+            else:
+                item.rect = pygame.Rect(dropdown_x, y, max_width, item_height)
+                # Hover effect
+                if item.rect.collidepoint(mouse_pos):
+                    pygame.draw.rect(surface, (70, 130, 180), item.rect)
+                
+                # Checkmark for checkable items
+                text_x = dropdown_x + 10
+                if item.checkable:
+                    if item.checked:
+                        check = self.font.render("✓", True, (100, 200, 100))
+                        surface.blit(check, (dropdown_x + 8, y + 5))
+                    text_x = dropdown_x + 28
+                
+                # Item text
+                text = self.font.render(item.text, True, MENU_TEXT)
+                surface.blit(text, (text_x, y + 5))
+                y += item_height
+    
+    def handle_click(self, pos):
+        # Check if clicked on menu title
+        for menu in self.menus:
+            if menu.rect.collidepoint(pos):
+                if self.active_menu == menu:
+                    self.active_menu = None
+                else:
+                    self.active_menu = menu
+                return True
+        
+        # Check if clicked on dropdown item
+        if self.active_menu and self.active_menu.dropdown_rect:
+            if self.active_menu.dropdown_rect.collidepoint(pos):
+                for item in self.active_menu.items:
+                    if item.rect and item.rect.collidepoint(pos) and item.text != "separator":
+                        self._execute_action(item)
+                        self.active_menu = None
+                        return True
+        
+        # Clicked outside - close menu
+        if self.active_menu:
+            self.active_menu = None
+            return True
+        
+        return False
+    
+    def handle_hover(self, pos):
+        # If a menu is open, switch to hovered menu
+        if self.active_menu:
+            for menu in self.menus:
+                if menu.rect.collidepoint(pos) and menu != self.active_menu:
+                    self.active_menu = menu
+                    return
+    
+    def _execute_action(self, item):
+        action = item.action
+        if not action:
+            return
+        
+        # Handle checkable items
+        if item.checkable:
+            # For difficulty, only one can be checked
+            if action.startswith("difficulty_"):
+                for menu in self.menus:
+                    if menu.title == "Difficulty":
+                        for diff_item in menu.items:
+                            diff_item.checked = (diff_item == item)
+                        break
+            else:
+                item.checked = not item.checked
+        
+        # Execute the action
+        if action == "new_game":
+            self.game.new_game()
+        elif action == "undo":
+            self.game.undo_move()
+        elif action == "flip_board":
+            self.game.flip_board()
+        elif action == "exit":
+            pygame.event.post(pygame.event.Event(pygame.QUIT))
+        elif action == "toggle_sound":
+            self.game.toggle_sound(item.checked)
+        elif action == "toggle_coords":
+            self.game.toggle_coordinates(item.checked)
+        elif action == "reset_settings":
+            self.game.reset_settings()
+        elif action == "export_pgn":
+            self.game.export_pgn()
+        elif action == "copy_pgn":
+            self.game.copy_pgn()
+        elif action == "export_fen":
+            self.game.export_fen()
+        elif action == "copy_fen":
+            self.game.copy_fen()
+        elif action == "show_controls":
+            self.game.show_controls()
+        elif action == "show_about":
+            self.game.show_about()
+        elif action.startswith("difficulty_"):
+            diff_name = action.replace("difficulty_", "")
+            self.game.set_difficulty(diff_name)
+    
+    def is_menu_area(self, pos):
+        """Check if position is in menu bar or active dropdown"""
+        if pos[1] < MENU_BAR_HEIGHT:
+            return True
+        if self.active_menu and self.active_menu.dropdown_rect:
+            return self.active_menu.dropdown_rect.collidepoint(pos)
+        return False
 
 
 
@@ -77,19 +337,36 @@ def load_pieces():
 	return pieces
 
 # Draw the board
-def draw_board(surface):
+def draw_board(surface, flipped=False, show_coords=True):
 	for row in range(8):
 		for col in range(8):
 			color = WHITE if (row + col) % 2 == 0 else BLACK
-			rect = pygame.Rect(col * SQUARE_SIZE, row * SQUARE_SIZE, 
+			rect = pygame.Rect(col * SQUARE_SIZE, row * SQUARE_SIZE + MENU_BAR_HEIGHT, 
 							  SQUARE_SIZE, SQUARE_SIZE)
 			pygame.draw.rect(surface, color, rect)
+	
+	# Draw coordinates if enabled
+	if show_coords:
+		coord_font = pygame.font.Font(None, 18)
+		for i in range(8):
+			# File letters (a-h) at bottom
+			file_letter = chr(ord('a') + i) if not flipped else chr(ord('h') - i)
+			file_text = coord_font.render(file_letter, True, (100, 100, 100))
+			surface.blit(file_text, (i * SQUARE_SIZE + SQUARE_SIZE - 12, BOARD_SIZE + MENU_BAR_HEIGHT - 14))
+			
+			# Rank numbers (1-8) on left
+			rank_num = str(8 - i) if not flipped else str(i + 1)
+			rank_text = coord_font.render(rank_num, True, (100, 100, 100))
+			surface.blit(rank_text, (4, i * SQUARE_SIZE + MENU_BAR_HEIGHT + 4))
 
 # Draw pieces (modified to handle animations)
-def draw_pieces(surface, board, pieces, animating_piece=None, animated_squares=None):
+def draw_pieces(surface, board, pieces, animating_piece=None, animated_squares=None, flipped=False):
 	for row in range(8):
 		for col in range(8):
-			square = chess.square(col, 7 - row)  # Flip board vertically
+			if flipped:
+				square = chess.square(7 - col, row)
+			else:
+				square = chess.square(col, 7 - row)
 			
 			# Skip drawing piece if it's being animated
 			if animated_squares and square in animated_squares:
@@ -99,34 +376,45 @@ def draw_pieces(surface, board, pieces, animating_piece=None, animated_squares=N
 			if piece:
 				piece_image = pieces[piece.symbol()]
 				x = col * SQUARE_SIZE + (SQUARE_SIZE - piece_image.get_width()) // 2
-				y = row * SQUARE_SIZE + (SQUARE_SIZE - piece_image.get_height()) // 2
+				y = row * SQUARE_SIZE + MENU_BAR_HEIGHT + (SQUARE_SIZE - piece_image.get_height()) // 2
 				surface.blit(piece_image, (x, y))
 
 # Convert pixel coordinates to chess square
-def get_square_from_mouse(pos):
+def get_square_from_mouse(pos, flipped=False):
 	col = pos[0] // SQUARE_SIZE
-	row = 7 - (pos[1] // SQUARE_SIZE)  # Flip vertically
-	return chess.square(col, row)
+	row = (pos[1] - MENU_BAR_HEIGHT) // SQUARE_SIZE
+	if flipped:
+		return chess.square(7 - col, row)
+	else:
+		return chess.square(col, 7 - row)
 
 # Highlight selected square
-def draw_selection(surface, square):
+def draw_selection(surface, square, flipped=False):
 	if square is not None:
-		col = chess.square_file(square)
-		row = 7 - chess.square_rank(square)
+		if flipped:
+			col = 7 - chess.square_file(square)
+			row = chess.square_rank(square)
+		else:
+			col = chess.square_file(square)
+			row = 7 - chess.square_rank(square)
 		highlight_surface = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
 		highlight_surface.fill(HIGHLIGHT)
-		surface.blit(highlight_surface, (col * SQUARE_SIZE, row * SQUARE_SIZE))
+		surface.blit(highlight_surface, (col * SQUARE_SIZE, row * SQUARE_SIZE + MENU_BAR_HEIGHT))
 
 # Show possible moves
-def draw_possible_moves(surface, board, square):
+def draw_possible_moves(surface, board, square, flipped=False):
 	if square is not None:
 		for move in board.legal_moves:
 			if move.from_square == square:
-				col = chess.square_file(move.to_square)
-				row = 7 - chess.square_rank(move.to_square)
+				if flipped:
+					col = 7 - chess.square_file(move.to_square)
+					row = chess.square_rank(move.to_square)
+				else:
+					col = chess.square_file(move.to_square)
+					row = 7 - chess.square_rank(move.to_square)
 				# Draw a circle in the center of valid move squares
 				center_x = col * SQUARE_SIZE + SQUARE_SIZE // 2
-				center_y = row * SQUARE_SIZE + SQUARE_SIZE // 2
+				center_y = row * SQUARE_SIZE + SQUARE_SIZE // 2 + MENU_BAR_HEIGHT
 				
 				# Check if there's a piece to capture
 				if board.piece_at(move.to_square):
@@ -135,19 +423,25 @@ def draw_possible_moves(surface, board, square):
 					pygame.draw.circle(surface, (0, 150, 0, 150), (center_x, center_y), 10)
 
 # Draw hint arrow
-def draw_hint(surface, move):
+def draw_hint(surface, move, flipped=False):
 	if move:
 		# Get coordinates for from and to squares
-		from_col = chess.square_file(move.from_square)
-		from_row = 7 - chess.square_rank(move.from_square)
-		to_col = chess.square_file(move.to_square)
-		to_row = 7 - chess.square_rank(move.to_square)
+		if flipped:
+			from_col = 7 - chess.square_file(move.from_square)
+			from_row = chess.square_rank(move.from_square)
+			to_col = 7 - chess.square_file(move.to_square)
+			to_row = chess.square_rank(move.to_square)
+		else:
+			from_col = chess.square_file(move.from_square)
+			from_row = 7 - chess.square_rank(move.from_square)
+			to_col = chess.square_file(move.to_square)
+			to_row = 7 - chess.square_rank(move.to_square)
 		
 		# Calculate center points of squares
 		from_x = from_col * SQUARE_SIZE + SQUARE_SIZE // 2
-		from_y = from_row * SQUARE_SIZE + SQUARE_SIZE // 2
+		from_y = from_row * SQUARE_SIZE + SQUARE_SIZE // 2 + MENU_BAR_HEIGHT
 		to_x = to_col * SQUARE_SIZE + SQUARE_SIZE // 2
-		to_y = to_row * SQUARE_SIZE + SQUARE_SIZE // 2
+		to_y = to_row * SQUARE_SIZE + SQUARE_SIZE // 2 + MENU_BAR_HEIGHT
 		
 		# Draw arrow for hint
 		pygame.draw.line(surface, (255, 0, 255), (from_x, from_y), (to_x, to_y), 5)
@@ -158,12 +452,12 @@ def draw_hint(surface, move):
 		# Highlight the squares
 		hint_surface = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
 		hint_surface.fill((255, 0, 255, 100))
-		surface.blit(hint_surface, (from_col * SQUARE_SIZE, from_row * SQUARE_SIZE))
-		surface.blit(hint_surface, (to_col * SQUARE_SIZE, to_row * SQUARE_SIZE))
+		surface.blit(hint_surface, (from_col * SQUARE_SIZE, from_row * SQUARE_SIZE + MENU_BAR_HEIGHT))
+		surface.blit(hint_surface, (to_col * SQUARE_SIZE, to_row * SQUARE_SIZE + MENU_BAR_HEIGHT))
 
 # Draw hint button
 def draw_hint_button(surface):
-	button_rect = pygame.Rect(BOARD_SIZE - 100, 10, 90, 30)
+	button_rect = pygame.Rect(BOARD_SIZE - 100, MENU_BAR_HEIGHT + 10, 90, 30)
 	pygame.draw.rect(surface, (100, 200, 100), button_rect)
 	pygame.draw.rect(surface, (0, 0, 0), button_rect, 2)
 	
@@ -171,45 +465,59 @@ def draw_hint_button(surface):
 	text = font.render("Hint (H)", True, (0, 0, 0))
 	text_rect = text.get_rect(center=button_rect.center)
 	surface.blit(text, text_rect)
+	return button_rect
 
 # Draw hint text
 def draw_hint_text(surface):
 	font = pygame.font.Font(None, 20)
 	text = font.render("Best move shown in purple", True, (255, 0, 255))
-	surface.blit(text, (10, 10))
+	surface.blit(text, (10, MENU_BAR_HEIGHT + 10))
 
-def draw_last_move(surface, move):
+def draw_last_move(surface, move, flipped=False):
 	if move:
 		# Highlight the last move squares with subtle color
-		from_col = chess.square_file(move.from_square)
-		from_row = 7 - chess.square_rank(move.from_square)
-		to_col = chess.square_file(move.to_square)
-		to_row = 7 - chess.square_rank(move.to_square)
+		if flipped:
+			from_col = 7 - chess.square_file(move.from_square)
+			from_row = chess.square_rank(move.from_square)
+			to_col = 7 - chess.square_file(move.to_square)
+			to_row = chess.square_rank(move.to_square)
+		else:
+			from_col = chess.square_file(move.from_square)
+			from_row = 7 - chess.square_rank(move.from_square)
+			to_col = chess.square_file(move.to_square)
+			to_row = 7 - chess.square_rank(move.to_square)
 		
 		# Draw with a subtle yellow highlight
 		last_move_surface = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
 		last_move_surface.fill((255, 255, 100, 50))
-		surface.blit(last_move_surface, (from_col * SQUARE_SIZE, from_row * SQUARE_SIZE))
-		surface.blit(last_move_surface, (to_col * SQUARE_SIZE, to_row * SQUARE_SIZE))
+		surface.blit(last_move_surface, (from_col * SQUARE_SIZE, from_row * SQUARE_SIZE + MENU_BAR_HEIGHT))
+		surface.blit(last_move_surface, (to_col * SQUARE_SIZE, to_row * SQUARE_SIZE + MENU_BAR_HEIGHT))
 
 # Animation class for smooth piece movement
 class PieceAnimation:
-	def __init__(self, piece, from_square, to_square, piece_image):
+	def __init__(self, piece, from_square, to_square, piece_image, flipped=False):
 		self.piece = piece
 		self.from_square = from_square
 		self.to_square = to_square
 		self.piece_image = piece_image
+		self.flipped = flipped
 		
 		# Calculate pixel positions
-		from_col = chess.square_file(from_square)
-		from_row = 7 - chess.square_rank(from_square)
-		to_col = chess.square_file(to_square)
-		to_row = 7 - chess.square_rank(to_square)
+		if flipped:
+			from_col = 7 - chess.square_file(from_square)
+			from_row = chess.square_rank(from_square)
+			to_col = 7 - chess.square_file(to_square)
+			to_row = chess.square_rank(to_square)
+		else:
+			from_col = chess.square_file(from_square)
+			from_row = 7 - chess.square_rank(from_square)
+			to_col = chess.square_file(to_square)
+			to_row = 7 - chess.square_rank(to_square)
 		
 		self.start_x = from_col * SQUARE_SIZE + (SQUARE_SIZE - piece_image.get_width()) // 2
-		self.start_y = from_row * SQUARE_SIZE + (SQUARE_SIZE - piece_image.get_height()) // 2
+		self.start_y = from_row * SQUARE_SIZE + MENU_BAR_HEIGHT + (SQUARE_SIZE - piece_image.get_height()) // 2
 		self.end_x = to_col * SQUARE_SIZE + (SQUARE_SIZE - piece_image.get_width()) // 2
-		self.end_y = to_row * SQUARE_SIZE + (SQUARE_SIZE - piece_image.get_height()) // 2
+		self.end_y = to_row * SQUARE_SIZE + MENU_BAR_HEIGHT + (SQUARE_SIZE - piece_image.get_height()) // 2
 		
 		self.current_x = float(self.start_x)
 		self.current_y = float(self.start_y)
@@ -239,6 +547,7 @@ class PieceAnimation:
 # Main game class
 class ChessGame:
 	def __init__(self, stockfish_path):
+		self.stockfish_path = stockfish_path
 		self.board = chess.Board()
 		self.engine = chess.engine.SimpleEngine.popen_uci(stockfish_path)
 		self.pieces = load_pieces()
@@ -254,7 +563,25 @@ class ChessGame:
 		self.current_animation = None  # Current piece animation
 		self.animation_board = None  # Board state during animation
 		self.move_history = []
-		self.sounds = SOUNDS  # Add this line after other initializations
+		self.sounds = SOUNDS
+		
+		# Menu-related settings
+		self.menu_bar = MenuBar(self)
+		self.board_flipped = False
+		self.show_coordinates = True
+		self.sound_enabled = True
+		self.difficulty = "Medium"
+		self.engine_time = DIFFICULTY_SETTINGS["Medium"]["time"]
+		self.engine_depth = DIFFICULTY_SETTINGS["Medium"]["depth"]
+		
+		# For PGN export
+		self.game_moves = []  # Store moves in UCI format for PGN
+		self.game_start_time = datetime.now()
+		
+		# Dialog/overlay state
+		self.showing_dialog = False
+		self.dialog_text = []
+		self.dialog_title = ""
 
 	# # Add this method to ChessGame class
 	# def add_to_history(self, move):
@@ -284,30 +611,301 @@ class ChessGame:
 			self.move_history.append(f"{move_number}. {san}")
 			
 	def play_move_sound(self, move):
-		if self.sounds:
+		if self.sounds and self.sound_enabled:
 			if self.board.is_capture(move):
 				if 'capture' in self.sounds:
 					self.sounds['capture'].play()
 			else:
 				if 'move' in self.sounds:
 					self.sounds['move'].play()
+	
+	# ========== Menu Action Methods ==========
+	
+	def new_game(self):
+		"""Start a new game"""
+		self.board = chess.Board()
+		self.selected_square = None
+		self.game_over = False
+		self.hint_move = None
+		self.show_hint = False
+		self.last_move = None
+		self.engine_thinking = False
+		self.engine_move_pending = None
+		self.engine_move_timer = 0
+		self.current_animation = None
+		self.animation_board = None
+		self.move_history = []
+		self.game_moves = []
+		self.game_start_time = datetime.now()
+		print("=== New Game Started ===")
+	
+	def undo_move(self):
+		"""Undo the last move (player's move + engine's response)"""
+		if len(self.board.move_stack) >= 2 and not self.current_animation:
+			# Undo engine's move
+			self.board.pop()
+			if self.game_moves:
+				self.game_moves.pop()
+			if self.move_history:
+				# Remove from display history
+				if self.move_history[-1].count(' ') > 0:
+					# Both moves on same line, just remove black's move
+					parts = self.move_history[-1].split(' ')
+					self.move_history[-1] = parts[0] + ' ' + parts[1]
+				else:
+					self.move_history.pop()
+			
+			# Undo player's move
+			self.board.pop()
+			if self.game_moves:
+				self.game_moves.pop()
+			if self.move_history:
+				self.move_history.pop()
+			
+			self.selected_square = None
+			self.last_move = self.board.move_stack[-1] if self.board.move_stack else None
+			self.game_over = False
+			print("⟲ Undo: Reverted last move pair")
+		elif len(self.board.move_stack) == 1:
+			# Only one move made (player's first move)
+			self.board.pop()
+			if self.game_moves:
+				self.game_moves.pop()
+			if self.move_history:
+				self.move_history.pop()
+			self.last_move = None
+			print("⟲ Undo: Reverted opening move")
+	
+	def flip_board(self):
+		"""Flip the board view"""
+		self.board_flipped = not self.board_flipped
+		print(f"Board {'flipped' if self.board_flipped else 'normal'}")
+	
+	def toggle_sound(self, enabled):
+		"""Toggle sound effects"""
+		self.sound_enabled = enabled
+		print(f"Sound {'enabled' if enabled else 'disabled'}")
+	
+	def toggle_coordinates(self, enabled):
+		"""Toggle coordinate display"""
+		self.show_coordinates = enabled
+	
+	def reset_settings(self):
+		"""Reset all settings to default"""
+		self.board_flipped = False
+		self.show_coordinates = True
+		self.sound_enabled = True
+		self.set_difficulty("Medium")
+		# Update menu checkboxes
+		for menu in self.menu_bar.menus:
+			if menu.title == "Options":
+				for item in menu.items:
+					if item.action == "toggle_sound":
+						item.checked = True
+					elif item.action == "toggle_coords":
+						item.checked = True
+			elif menu.title == "Difficulty":
+				for item in menu.items:
+					item.checked = (item.text == "Medium")
+			elif menu.title == "Game":
+				for item in menu.items:
+					if item.action == "flip_board":
+						item.checked = False
+		print("Settings reset to defaults")
+	
+	def set_difficulty(self, difficulty_name):
+		"""Set the engine difficulty"""
+		if difficulty_name in DIFFICULTY_SETTINGS:
+			self.difficulty = difficulty_name
+			settings = DIFFICULTY_SETTINGS[difficulty_name]
+			self.engine_time = settings["time"]
+			self.engine_depth = settings["depth"]
+			print(f"Difficulty set to {difficulty_name} (time: {self.engine_time}s, depth: {self.engine_depth or 'unlimited'})")
+	
+	def get_pgn(self):
+		"""Generate PGN string for the current game"""
+		pgn_lines = []
+		
+		# Headers
+		pgn_lines.append(f'[Event "Casual Game"]')
+		pgn_lines.append(f'[Site "PyChess"]')
+		pgn_lines.append(f'[Date "{self.game_start_time.strftime("%Y.%m.%d")}"]')
+		pgn_lines.append(f'[Round "?"]')
+		pgn_lines.append(f'[White "Player"]')
+		pgn_lines.append(f'[Black "Stockfish ({self.difficulty})"]')
+		
+		# Result
+		if self.game_over:
+			if self.board.is_checkmate():
+				result = "1-0" if self.board.turn == chess.BLACK else "0-1"
+			else:
+				result = "1/2-1/2"
+		else:
+			result = "*"
+		pgn_lines.append(f'[Result "{result}"]')
+		pgn_lines.append('')
+		
+		# Moves
+		temp_board = chess.Board()
+		move_text = []
+		for i, move in enumerate(self.game_moves):
+			if i % 2 == 0:
+				move_text.append(f"{i // 2 + 1}.")
+			move_text.append(temp_board.san(move))
+			temp_board.push(move)
+		
+		move_text.append(result)
+		pgn_lines.append(' '.join(move_text))
+		
+		return '\n'.join(pgn_lines)
+	
+	def export_pgn(self):
+		"""Export game to PGN file"""
+		# Hide pygame window temporarily for file dialog
+		root = tk.Tk()
+		root.withdraw()
+		
+		filename = filedialog.asksaveasfilename(
+			defaultextension=".pgn",
+			filetypes=[("PGN files", "*.pgn"), ("All files", "*.*")],
+			title="Export Game as PGN",
+			initialfile=f"chess_game_{self.game_start_time.strftime('%Y%m%d_%H%M%S')}.pgn"
+		)
+		
+		root.destroy()
+		
+		if filename:
+			pgn = self.get_pgn()
+			with open(filename, 'w') as f:
+				f.write(pgn)
+			print(f"✓ Game exported to {filename}")
+	
+	def copy_pgn(self):
+		"""Copy PGN to clipboard"""
+		pgn = self.get_pgn()
+		root = tk.Tk()
+		root.withdraw()
+		root.clipboard_clear()
+		root.clipboard_append(pgn)
+		root.update()
+		root.destroy()
+		print("✓ PGN copied to clipboard")
+	
+	def export_fen(self):
+		"""Export current position as FEN"""
+		root = tk.Tk()
+		root.withdraw()
+		
+		filename = filedialog.asksaveasfilename(
+			defaultextension=".fen",
+			filetypes=[("FEN files", "*.fen"), ("Text files", "*.txt"), ("All files", "*.*")],
+			title="Export Position as FEN",
+			initialfile=f"position_{datetime.now().strftime('%Y%m%d_%H%M%S')}.fen"
+		)
+		
+		root.destroy()
+		
+		if filename:
+			with open(filename, 'w') as f:
+				f.write(self.board.fen())
+			print(f"✓ Position exported to {filename}")
+	
+	def copy_fen(self):
+		"""Copy FEN to clipboard"""
+		fen = self.board.fen()
+		root = tk.Tk()
+		root.withdraw()
+		root.clipboard_clear()
+		root.clipboard_append(fen)
+		root.update()
+		root.destroy()
+		print(f"✓ FEN copied to clipboard: {fen}")
+	
+	def show_controls(self):
+		"""Show controls dialog"""
+		self.dialog_title = "Controls"
+		self.dialog_text = [
+			"Mouse Controls:",
+			"  Click piece to select",
+			"  Click destination to move",
+			"",
+			"Keyboard Shortcuts:",
+			"  H - Show hint",
+			"  Ctrl+Z - Undo move",
+			"  Ctrl+N - New game",
+			"  F - Flip board",
+			"  Esc - Close dialog",
+		]
+		self.showing_dialog = True
+	
+	def show_about(self):
+		"""Show about dialog"""
+		self.dialog_title = "About PyChess"
+		self.dialog_text = [
+			"PyChess v1.0",
+			"",
+			"A chess game powered by",
+			"Stockfish engine",
+			"",
+			"Built with Python & Pygame",
+			"",
+			"Press Esc to close",
+		]
+		self.showing_dialog = True
+	
+	def draw_dialog(self, surface):
+		"""Draw modal dialog overlay"""
+		if not self.showing_dialog:
+			return
+		
+		# Semi-transparent overlay
+		overlay = pygame.Surface((FULL_WIDTH, BOARD_SIZE + MENU_BAR_HEIGHT), pygame.SRCALPHA)
+		overlay.fill((0, 0, 0, 180))
+		surface.blit(overlay, (0, 0))
+		
+		# Dialog box
+		dialog_width = 300
+		dialog_height = 50 + len(self.dialog_text) * 25
+		dialog_x = (FULL_WIDTH - dialog_width) // 2
+		dialog_y = (BOARD_SIZE + MENU_BAR_HEIGHT - dialog_height) // 2
+		
+		pygame.draw.rect(surface, (50, 50, 50), (dialog_x, dialog_y, dialog_width, dialog_height), border_radius=8)
+		pygame.draw.rect(surface, (100, 100, 100), (dialog_x, dialog_y, dialog_width, dialog_height), 2, border_radius=8)
+		
+		# Title
+		title_font = pygame.font.Font(None, 28)
+		title = title_font.render(self.dialog_title, True, (255, 255, 255))
+		surface.blit(title, (dialog_x + 15, dialog_y + 15))
+		
+		# Content
+		content_font = pygame.font.Font(None, 22)
+		y = dialog_y + 45
+		for line in self.dialog_text:
+			text = content_font.render(line, True, (200, 200, 200))
+			surface.blit(text, (dialog_x + 15, y))
+			y += 25
 
 
 	def draw_info_panel(self, surface):
 		# Draw panel background
-		panel_rect = pygame.Rect(BOARD_SIZE, 0, INFO_PANEL_WIDTH, BOARD_SIZE)
+		panel_rect = pygame.Rect(BOARD_SIZE, MENU_BAR_HEIGHT, INFO_PANEL_WIDTH, BOARD_SIZE)
 		pygame.draw.rect(surface, (40, 40, 40), panel_rect)
 		
 		# Title
 		font_title = pygame.font.Font(None, 28)
 		title = font_title.render("Move History", True, (255, 255, 255))
-		surface.blit(title, (BOARD_SIZE + 10, 10))
+		surface.blit(title, (BOARD_SIZE + 10, MENU_BAR_HEIGHT + 10))
+		
+		# Show difficulty
+		font_small = pygame.font.Font(None, 18)
+		diff_text = font_small.render(f"Difficulty: {self.difficulty}", True, (150, 150, 150))
+		surface.blit(diff_text, (BOARD_SIZE + 10, MENU_BAR_HEIGHT + 35))
 		
 		# Draw moves
 		font_moves = pygame.font.Font(None, 20)
-		y_offset = 50
-		for i, move_text in enumerate(self.move_history[-15:]):  # Show last 15 moves
-			color = (255, 255, 255) if i == len(self.move_history) - 1 else (180, 180, 180)
+		y_offset = MENU_BAR_HEIGHT + 60
+		for i, move_text in enumerate(self.move_history[-12:]):  # Show last 12 moves
+			color = (255, 255, 255) if i == len(self.move_history[-12:]) - 1 else (180, 180, 180)
 			text = font_moves.render(move_text, True, color)
 			surface.blit(text, (BOARD_SIZE + 10, y_offset + i * 25))
 		
@@ -315,13 +913,13 @@ class ChessGame:
 		turn_text = "White to move" if self.board.turn == chess.WHITE else "Black to move"
 		turn_color = (255, 255, 255) if self.board.turn == chess.WHITE else (100, 100, 100)
 		turn_surface = font_title.render(turn_text, True, turn_color)
-		surface.blit(turn_surface, (BOARD_SIZE + 10, BOARD_SIZE - 100))
+		surface.blit(turn_surface, (BOARD_SIZE + 10, BOARD_SIZE + MENU_BAR_HEIGHT - 100))
 		
 		# Show game status
 		if self.game_over:
 			result_text = self.get_result()
 			result_surface = font_moves.render(result_text, True, (255, 100, 100))
-			surface.blit(result_surface, (BOARD_SIZE + 10, BOARD_SIZE - 50))
+			surface.blit(result_surface, (BOARD_SIZE + 10, BOARD_SIZE + MENU_BAR_HEIGHT - 50))
 		
 	def get_hint(self):
 		"""Get the best move suggestion from Stockfish"""
@@ -355,22 +953,24 @@ class ChessGame:
 		piece = self.board.piece_at(move.from_square)
 		if piece:
 			piece_image = self.pieces[piece.symbol()]
-			self.current_animation = PieceAnimation(piece, move.from_square, move.to_square, piece_image)
+			self.current_animation = PieceAnimation(piece, move.from_square, move.to_square, piece_image, self.board_flipped)
 			# Store board state before move for drawing
 			self.animation_board = self.board.copy()
 	
 	def handle_click(self, pos):
-			# Ignore clicks outside the board
-		if pos[0] >= BOARD_SIZE:
+		# Ignore clicks outside the board or in menu area
+		if pos[0] >= BOARD_SIZE or pos[1] < MENU_BAR_HEIGHT:
 			return
 		if self.game_over or self.board.turn != self.player_color or self.current_animation:
+			return
+		if self.showing_dialog:
 			return
 		
 		# Clear hint when making a move
 		self.show_hint = False
 		self.hint_move = None
 		
-		square = get_square_from_mouse(pos)
+		square = get_square_from_mouse(pos, self.board_flipped)
 		
 		if self.selected_square is None:
 			# Select a piece
@@ -382,15 +982,17 @@ class ChessGame:
 			move = chess.Move(self.selected_square, square)
 			
 			# Check for pawn promotion
-			if (self.board.piece_at(self.selected_square).piece_type == chess.PAWN and
+			piece_at_selected = self.board.piece_at(self.selected_square)
+			if (piece_at_selected and piece_at_selected.piece_type == chess.PAWN and
 				chess.square_rank(square) in [0, 7]):
 				move = chess.Move(self.selected_square, square, promotion=chess.QUEEN)
 			
 			if move in self.board.legal_moves:
 				# Start animation
 				self.start_animation(move)
-				self.add_to_history(move)  # ADD THIS LINE
-				self.play_move_sound(move)  # ADD THIS LINE
+				self.add_to_history(move)
+				self.game_moves.append(move)  # Track for PGN export
+				self.play_move_sound(move)
 				self.board.push(move)
 				self.last_move = move
 				self.selected_square = None
@@ -410,11 +1012,18 @@ class ChessGame:
 	def make_engine_move(self):
 		if not self.game_over and self.board.turn != self.player_color and not self.current_animation:
 			if not self.engine_thinking and self.engine_move_pending is None:
-				# Start thinking
+				# Start thinking with difficulty-based limits
 				self.engine_thinking = True
-				result = self.engine.play(self.board, chess.engine.Limit(time=1.0))
+				
+				# Build limit based on difficulty settings
+				if self.engine_depth:
+					limit = chess.engine.Limit(time=self.engine_time, depth=self.engine_depth)
+				else:
+					limit = chess.engine.Limit(time=self.engine_time)
+				
+				result = self.engine.play(self.board, limit)
 				self.engine_move_pending = result.move
-				self.engine_move_timer = pygame.time.get_ticks() + 500	# 0.5 second delay before moving
+				self.engine_move_timer = pygame.time.get_ticks() + 500  # 0.5 second delay before moving
 				
 				# Show what piece will be moved
 				from_square = chess.square_name(result.move.from_square)
@@ -429,15 +1038,16 @@ class ChessGame:
 					chess.KING: "King"
 				}.get(piece.piece_type, "Piece")
 				
-				print(f"🤖 Stockfish: {piece_name} {from_square} → {to_square}")
+				print(f"🤖 Stockfish ({self.difficulty}): {piece_name} {from_square} → {to_square}")
 				self.engine_thinking = False
 			
 			# Check if it's time to make the pending move
 			if self.engine_move_pending and pygame.time.get_ticks() >= self.engine_move_timer:
 				# Start animation for engine move
 				self.start_animation(self.engine_move_pending)
-				self.play_move_sound(self.engine_move_pending)  # ADD THIS LINE
-				self.add_to_history(self.engine_move_pending)  # ADD THIS LINE
+				self.play_move_sound(self.engine_move_pending)
+				self.add_to_history(self.engine_move_pending)
+				self.game_moves.append(self.engine_move_pending)  # Track for PGN export
 				self.board.push(self.engine_move_pending)
 				self.last_move = self.engine_move_pending
 				self.engine_move_pending = None
@@ -471,21 +1081,24 @@ class ChessGame:
 			return "Draw!"
 	
 	def draw(self, surface):
-		draw_board(surface)
+		# Draw menu bar first
+		self.menu_bar.draw(surface)
+		
+		draw_board(surface, self.board_flipped, self.show_coordinates)
 		
 		# Draw last move highlight
 		if self.last_move and not self.current_animation:
-			draw_last_move(surface, self.last_move)
+			draw_last_move(surface, self.last_move, self.board_flipped)
 		
-		draw_selection(surface, self.selected_square)
+		draw_selection(surface, self.selected_square, self.board_flipped)
 		
 		# Only show possible moves when not animating
 		if not self.current_animation:
-			draw_possible_moves(surface, self.board, self.selected_square)
+			draw_possible_moves(surface, self.board, self.selected_square, self.board_flipped)
 		
 		# Draw hint if active
 		if self.show_hint and self.hint_move:
-			draw_hint(surface, self.hint_move)
+			draw_hint(surface, self.hint_move, self.board_flipped)
 			
 		self.draw_info_panel(surface)
 		
@@ -493,16 +1106,19 @@ class ChessGame:
 		if self.current_animation:
 			# Draw board without the animating piece
 			animated_squares = [self.current_animation.from_square, self.current_animation.to_square]
-			draw_pieces(surface, self.animation_board, self.pieces, animating_piece=self.current_animation, animated_squares=animated_squares)
+			draw_pieces(surface, self.animation_board, self.pieces, animating_piece=self.current_animation, animated_squares=animated_squares, flipped=self.board_flipped)
 			# Draw the animating piece
 			self.current_animation.draw(surface)
 		else:
-			draw_pieces(surface, self.board, self.pieces)
+			draw_pieces(surface, self.board, self.pieces, flipped=self.board_flipped)
 		
 		# Draw hint button
-		draw_hint_button(surface)
+		hint_button_rect = draw_hint_button(surface)
 		if self.show_hint:
 			draw_hint_text(surface)
+		
+		# Draw dialog if showing
+		self.draw_dialog(surface)
 	
 	def cleanup(self):
 		self.engine.quit()
@@ -526,6 +1142,7 @@ def main():
 	print("=== Chess Game Started ===")
 	print("Press 'H' for hint")
 	print("Click pieces to move")
+	print("Use menu bar for options")
 	print("=========================")
 	
 	while running:
@@ -534,21 +1151,55 @@ def main():
 				running = False
 			elif event.type == pygame.MOUSEBUTTONDOWN:
 				if event.button == 1:  # Left click
+					# First check if clicking in menu area
+					if game.menu_bar.handle_click(event.pos):
+						continue
+					
+					# Close dialog on click
+					if game.showing_dialog:
+						game.showing_dialog = False
+						continue
+					
 					# Check if hint button clicked
-					button_rect = pygame.Rect(BOARD_SIZE - 100, 10, 90, 30)
+					button_rect = pygame.Rect(BOARD_SIZE - 100, MENU_BAR_HEIGHT + 10, 90, 30)
 					if button_rect.collidepoint(event.pos):
 						game.get_hint()
 					else:
 						game.handle_click(event.pos)
+			elif event.type == pygame.MOUSEMOTION:
+				# Handle menu hover for switching between open menus
+				game.menu_bar.handle_hover(event.pos)
 			elif event.type == pygame.KEYDOWN:
-				if event.key == pygame.K_h:  # Press H for hint
-					game.get_hint()
+				# Close dialog on Escape
+				if event.key == pygame.K_ESCAPE:
+					if game.showing_dialog:
+						game.showing_dialog = False
+					elif game.menu_bar.active_menu:
+						game.menu_bar.active_menu = None
+				elif event.key == pygame.K_h:  # Press H for hint
+					if not game.showing_dialog:
+						game.get_hint()
+				elif event.key == pygame.K_f:  # Press F to flip board
+					if not game.showing_dialog:
+						game.flip_board()
+						# Update menu checkbox
+						for menu in game.menu_bar.menus:
+							if menu.title == "Game":
+								for item in menu.items:
+									if item.action == "flip_board":
+										item.checked = game.board_flipped
+				elif event.key == pygame.K_n and pygame.key.get_mods() & pygame.KMOD_CTRL:
+					# Ctrl+N for new game
+					game.new_game()
+				elif event.key == pygame.K_z and pygame.key.get_mods() & pygame.KMOD_CTRL:
+					# Ctrl+Z for undo
+					game.undo_move()
 		
 		# Update animation
 		game.update_animation()
 		
-		# Make engine move if it's the engine's turn
-		if not game.game_over and game.board.turn != game.player_color:
+		# Make engine move if it's the engine's turn (and no dialog open)
+		if not game.game_over and game.board.turn != game.player_color and not game.showing_dialog:
 			game.make_engine_move()
 		
 		# Draw everything
