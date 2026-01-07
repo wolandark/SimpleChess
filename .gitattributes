@@ -1,0 +1,30 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Explicitly declare text files
+*.py text
+*.txt text
+*.md text
+*.cpp text
+*.h text
+*.hpp text
+*.c text
+
+# Declare files that should always have LF line endings
+*.sh text eol=lf
+
+# Declare files that should always have CRLF line endings (if needed)
+*.bat text eol=crlf
+
+# Binary files (should not be modified)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
