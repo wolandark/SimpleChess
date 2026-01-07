@@ -54,7 +54,9 @@ ANIMATION_SPEED = 8  # Higher = faster animation
 INFO_PANEL_WIDTH = 200
 FULL_WIDTH = BOARD_SIZE + INFO_PANEL_WIDTH
 UI_FONT_SIZE = 14  # Base UI_FONT_SIZE for interface fonts
-SPLASH_SCREEN_IMAGE = "img/1.png"  # Path to splash screen image
+SPLASH_SCREEN_IMAGE = "img/4.jpg"  # Path to splash screen image
+MENU_BG_IMAGE = "img/5.jpg"  # Path to splash screen image
+
 
 # Menu colors
 MENU_BG = (50, 50, 50)
@@ -821,18 +823,9 @@ class SplashScreen:
         try:
             if os.path.exists(SPLASH_SCREEN_IMAGE):
                 self.image = pygame.image.load(SPLASH_SCREEN_IMAGE)
-                # Scale image to fit screen while maintaining aspect ratio
-                img_width, img_height = self.image.get_size()
+                # Scale image to fill entire window
                 screen_width, screen_height = FULL_WIDTH, BOARD_SIZE + MENU_BAR_HEIGHT
-                
-                # Calculate scaling to fit screen
-                scale_w = screen_width / img_width
-                scale_h = screen_height / img_height
-                scale = min(scale_w, scale_h)
-                
-                new_width = int(img_width * scale)
-                new_height = int(img_height * scale)
-                self.image_surface = pygame.transform.scale(self.image, (new_width, new_height))
+                self.image_surface = pygame.transform.scale(self.image, (screen_width, screen_height))
                 print(f"✓ Loaded splash screen: {SPLASH_SCREEN_IMAGE}")
             else:
                 print(f"⚠ Splash screen image not found: {SPLASH_SCREEN_IMAGE}")
@@ -860,18 +853,15 @@ class SplashScreen:
         
         # Draw splash image if available
         if self.image_surface:
-            # Center the image
-            img_rect = self.image_surface.get_rect()
-            img_rect.center = (FULL_WIDTH // 2, (BOARD_SIZE + MENU_BAR_HEIGHT) // 2)
-            
             # Apply fade effect
             temp_surface = self.image_surface.copy()
             temp_surface.set_alpha(alpha)
-            surface.blit(temp_surface, img_rect)
+            # Blit to fill entire surface (0, 0)
+            surface.blit(temp_surface, (0, 0))
         else:
             # Fallback: simple text if image not found
             title_font = load_interface_font(48)
-            title = title_font.render("PyChess", True, (255, 255, 255))
+            title = title_font.render("Simple Chess", True, (255, 255, 255))
             title_rect = title.get_rect(center=(FULL_WIDTH // 2, (BOARD_SIZE + MENU_BAR_HEIGHT) // 2))
             title.set_alpha(alpha)
             surface.blit(title, title_rect)
@@ -893,6 +883,20 @@ class MainMenu:
         
         # Calculate button positions
         self.button_x = FULL_WIDTH // 2 - self.button_width // 2
+        
+        # Load background image
+        self.background_image = None
+        try:
+            if os.path.exists(MENU_BG_IMAGE):
+                img = pygame.image.load(MENU_BG_IMAGE)
+                # Scale image to fill entire window
+                screen_width, screen_height = FULL_WIDTH, BOARD_SIZE + MENU_BAR_HEIGHT
+                self.background_image = pygame.transform.scale(img, (screen_width, screen_height))
+                print(f"✓ Loaded menu background: {MENU_BG_IMAGE}")
+            else:
+                print(f"⚠ Menu background image not found: {MENU_BG_IMAGE}")
+        except Exception as e:
+            print(f"⚠ Could not load menu background image: {e}")
         
     def get_button_rect(self, index):
         """Get rectangle for button at index"""
@@ -963,14 +967,46 @@ class MainMenu:
         difficulty_names = list(DIFFICULTY_SETTINGS.keys())
         self.selected_difficulty = difficulty_names[self.slider_value]
     
+    def render_text_with_outline(self, font, text, text_color, outline_color=(0, 0, 0), outline_width=2):
+        """Render text with an outline for better visibility"""
+        # Create a surface for the text with outline
+        text_surface = font.render(text, True, text_color)
+        outline_surface = font.render(text, True, outline_color)
+        
+        # Create final surface with padding for outline
+        w = text_surface.get_width() + outline_width * 2
+        h = text_surface.get_height() + outline_width * 2
+        final_surface = pygame.Surface((w, h), pygame.SRCALPHA)
+        
+        # Draw outline by blitting the outline text at offsets
+        offsets = [(-outline_width, -outline_width), (-outline_width, 0), (-outline_width, outline_width),
+                   (0, -outline_width), (0, outline_width),
+                   (outline_width, -outline_width), (outline_width, 0), (outline_width, outline_width)]
+        for ox, oy in offsets:
+            final_surface.blit(outline_surface, (outline_width + ox, outline_width + oy))
+        
+        # Draw main text on top
+        final_surface.blit(text_surface, (outline_width, outline_width))
+        
+        return final_surface
+    
     def draw(self, surface):
         """Draw the main menu"""
-        # Background
-        surface.fill((30, 30, 40))
+        # Background - draw image if available, otherwise solid color
+        if self.background_image:
+            # Blit to fill entire surface (0, 0)
+            surface.blit(self.background_image, (0, 0))
+            # Add a semi-transparent dark overlay to improve text readability
+            overlay = pygame.Surface((FULL_WIDTH, BOARD_SIZE + MENU_BAR_HEIGHT), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 100))  # Semi-transparent black overlay
+            surface.blit(overlay, (0, 0))
+        else:
+            # Fallback to solid color background
+            surface.fill((30, 30, 40))
         
-        # Title
+        # Title with outline
         title_font = load_interface_font(36)
-        title = title_font.render("PyChess", True, (255, 255, 255))
+        title = self.render_text_with_outline(title_font, "Simple Chess", (255, 255, 255), (0, 0, 0), 3)
         title_rect = title.get_rect(center=(FULL_WIDTH // 2, 80))
         surface.blit(title, title_rect)
         
@@ -982,14 +1018,17 @@ class MainMenu:
             rect = self.get_button_rect(i)
             hover = rect.collidepoint(mouse_pos)
             
-            # Button background
+            # Button background with more opacity
             bg_color = MENU_HOVER if hover else MENU_BG
-            pygame.draw.rect(surface, bg_color, rect, border_radius=5)
+            # Draw semi-transparent background for better visibility
+            button_bg = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+            button_bg.fill((*bg_color, 220))  # More opaque
+            surface.blit(button_bg, rect)
             pygame.draw.rect(surface, MENU_BORDER, rect, 2, border_radius=5)
             
-            # Button text
+            # Button text with outline
             font = load_interface_font(UI_FONT_SIZE + 2)
-            text = font.render(label, True, MENU_TEXT)
+            text = self.render_text_with_outline(font, label, MENU_TEXT, (0, 0, 0), 1)
             text_rect = text.get_rect(center=rect.center)
             surface.blit(text, text_rect)
         
@@ -997,13 +1036,20 @@ class MainMenu:
         slider_rect = self.get_slider_rect()
         slider_y = slider_rect.centery
         
-        # Slider label
+        # Slider label with outline and background
         label_font = load_interface_font(UI_FONT_SIZE)
-        label = label_font.render("Difficulty:", True, MENU_TEXT)
-        surface.blit(label, (slider_rect.left, slider_rect.top - 20))
+        label_text = self.render_text_with_outline(label_font, "Difficulty:", MENU_TEXT, (0, 0, 0), 2)
+        # Add small background behind label
+        label_bg_rect = pygame.Rect(slider_rect.left - 5, slider_rect.top - 25, label_text.get_width() + 10, label_text.get_height() + 4)
+        label_bg = pygame.Surface((label_bg_rect.width, label_bg_rect.height), pygame.SRCALPHA)
+        label_bg.fill((0, 0, 0, 150))  # Semi-transparent background
+        surface.blit(label_bg, label_bg_rect)
+        surface.blit(label_text, (slider_rect.left, slider_rect.top - 20))
         
-        # Slider track
-        pygame.draw.rect(surface, MENU_BG, slider_rect, border_radius=3)
+        # Slider track with more opacity
+        slider_bg = pygame.Surface((slider_rect.width, slider_rect.height), pygame.SRCALPHA)
+        slider_bg.fill((*MENU_BG, 220))  # More opaque
+        surface.blit(slider_bg, slider_rect)
         pygame.draw.rect(surface, MENU_BORDER, slider_rect, 1, border_radius=3)
         
         # Slider handle
@@ -1012,10 +1058,15 @@ class MainMenu:
         pygame.draw.rect(surface, MENU_HOVER, handle_rect, border_radius=3)
         pygame.draw.rect(surface, MENU_TEXT, handle_rect, 1, border_radius=3)
         
-        # Difficulty text
+        # Difficulty text with outline and background
         diff_font = load_interface_font(UI_FONT_SIZE)
-        diff_text = diff_font.render(self.selected_difficulty, True, MENU_TEXT)
+        diff_text = self.render_text_with_outline(diff_font, self.selected_difficulty, MENU_TEXT, (0, 0, 0), 2)
         diff_rect = diff_text.get_rect(center=(slider_rect.centerx, slider_rect.bottom + 15))
+        # Add small background behind difficulty text
+        diff_bg_rect = pygame.Rect(diff_rect.left - 5, diff_rect.top - 2, diff_rect.width + 10, diff_rect.height + 4)
+        diff_bg = pygame.Surface((diff_bg_rect.width, diff_bg_rect.height), pygame.SRCALPHA)
+        diff_bg.fill((0, 0, 0, 150))  # Semi-transparent background
+        surface.blit(diff_bg, diff_bg_rect)
         surface.blit(diff_text, diff_rect)
         
         # Color selection
@@ -1032,12 +1083,16 @@ class MainMenu:
             if selected:
                 bg_color = (70, 130, 180)  # Highlight selected
             
-            pygame.draw.rect(surface, bg_color, rect, border_radius=5)
+            # Draw semi-transparent background
+            color_button_bg = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+            color_button_bg.fill((*bg_color, 220))  # More opaque
+            surface.blit(color_button_bg, rect)
             pygame.draw.rect(surface, MENU_BORDER, rect, 2, border_radius=5)
             
+            # Color text with outline
             color_text = "White" if is_white else "Black"
             font = load_interface_font(UI_FONT_SIZE)
-            text = font.render(color_text, True, MENU_TEXT)
+            text = self.render_text_with_outline(font, color_text, MENU_TEXT, (0, 0, 0), 1)
             text_rect = text.get_rect(center=rect.center)
             surface.blit(text, text_rect)
 
@@ -1279,7 +1334,7 @@ class ChessGame:
         
         # Headers
         pgn_lines.append(f'[Event "Casual Game"]')
-        pgn_lines.append(f'[Site "PyChess"]')
+        pgn_lines.append(f'[Site "Simple Chess"]')
         pgn_lines.append(f'[Date "{self.game_start_time.strftime("%Y.%m.%d")}"]')
         pgn_lines.append(f'[Round "?"]')
         pgn_lines.append(f'[White "Player"]')
@@ -1511,9 +1566,9 @@ class ChessGame:
     
     def show_about(self):
         """Show about dialog"""
-        self.dialog_title = "About PyChess"
+        self.dialog_title = "About Simple Chess"
         self.dialog_text = [
-            "PyChess v1.0",
+            "Simple Chess v1.0",
             "",
             "A chess game powered by",
             "Stockfish engine",
@@ -1819,8 +1874,8 @@ def main():
     clock = pygame.time.Clock()
     
     # State management
-    state = "splash"  # splash -> menu -> game
-    splash_screen = SplashScreen()
+    state = "menu"  # splash -> menu -> game (splash disabled)
+    # splash_screen = SplashScreen()  # Disabled
     main_menu = MainMenu(STOCKFISH_PATH)
     game = None  # Will be created when starting a game
     
@@ -1939,10 +1994,10 @@ def main():
                         game.undo_move()
         
         # Update state transitions
-        if state == "splash":
-            new_state = splash_screen.update()
-            if new_state == "menu":
-                state = "menu"
+        # if state == "splash":  # Disabled
+        #     new_state = splash_screen.update()
+        #     if new_state == "menu":
+        #         state = "menu"
         
         # Update game logic
         if state == "game" and game:
@@ -1954,9 +2009,9 @@ def main():
                 game.make_engine_move()
         
         # Draw current state
-        if state == "splash":
-            splash_screen.draw(screen)
-        elif state == "menu":
+        # if state == "splash":  # Disabled
+        #     splash_screen.draw(screen)
+        if state == "menu":
             main_menu.draw(screen)
         elif state == "game" and game:
             game.draw(screen)
