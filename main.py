@@ -350,37 +350,102 @@ class MenuBar:
 
 def load_pieces():
     pieces = {}
+    # piece_map = {
+    #     'P': '♟', 'N': '♞', 'B': '♝', 'R': '♜', 'Q': '♛', 'K': '♚',
+    #     'p': '♙', 'n': '♘', 'b': '♗', 'r': '♖', 'q': '♕', 'k': '♔'
+    # }
+
     piece_map = {
-        'P': '♟', 'N': '♞', 'B': '♝', 'R': '♜', 'Q': '♛', 'K': '♚',
-        'p': '♙', 'n': '♘', 'b': '♗', 'r': '♖', 'q': '♕', 'k': '♔'
+      "P": "\u265F",  # black pawn
+      "N": "\u265E",  # black knight
+      "B": "\u265D",  # black bishop
+      "R": "\u265C",  # black rook
+      "Q": "\u265B",  # black queen
+      "K": "\u265A",  # black king
+
+      "p": "\u2659",  # white pawn
+      "n": "\u2658",  # white knight
+      "b": "\u2657",  # white bishop
+      "r": "\u2656",  # white rook
+      "q": "\u2655",  # white queen
+      "k": "\u2654",  # white king
     }
 
-    fonts_to_try = []
 
-    if is_windows:
-        fonts_to_try = [
-            pygame.font.Font(r"C:\Windows\Fonts\seguisym.ttf", 60),
-            pygame.font.Font(None, 60),
-        ]
-
-    elif is_linux:
-        fonts_to_try = [
-            pygame.font.Font("/usr/share/fonts/TTF/DejaVuSans.ttf", 60),
-            pygame.font.Font("/usr/share/fonts/noto/NotoSansSymbols-Regular.ttf", 60),
-            pygame.font.Font(None, 60),
-        ]
+    def font_can_render_chess(test_font):
+        """Check if font can actually render chess symbols (not just load them)"""
+        try:
+            test_surface = test_font.render("♔", True, (255, 255, 255))
+            # Check if the rendered surface has any visible pixels
+            # If font doesn't have the glyph, it renders blank/invisible
+            if test_surface.get_width() < 5:  # Too narrow = missing glyph
+                return False
+            # Check for actual pixel content by looking at the surface
+            for x in range(test_surface.get_width()):
+                for y in range(test_surface.get_height()):
+                    pixel = test_surface.get_at((x, y))
+                    if pixel[3] > 0:  # Has any non-transparent pixel
+                        return True
+            return False
+        except Exception:
+            return False
 
     font = None
-    for f in fonts_to_try:
-        try:
-            f.render("♔", True, (255, 255, 255))
-            font = f
-            break
-        except Exception:
-            pass
+    
+    try:
+        preferred_font_path = "fonts/chess_merida_unicode.ttf"
+        test_font = pygame.font.Font(preferred_font_path, 60)
+        if font_can_render_chess(test_font):
+            font = test_font
+            print(f"Loaded preferred font: {preferred_font_path}")
+        else:
+            preferred_font_path = "fonts/LEIPFONT.ttf"
+            test_font = pygame.font.Font(preferred_font_path, 60)
+            if font_can_render_chess(test_font):
+                font = test_font
+                print(f"Loaded preferred font: {preferred_font_path}")
+            else:
+                preferred_font_path = "fonts/Alpha.ttf"
+                test_font = pygame.font.Font(preferred_font_path, 60)
+                if font_can_render_chess(test_font):
+                    font = test_font
+                    print(f"Loaded preferred font: {preferred_font_path}")
+                else:
+                    print(f"Font {preferred_font_path} loaded but cannot render chess symbols") 
+    except Exception as e:
+        print(f"Could not load {preferred_font_path}: {e}")
 
+    
+    # Fall back to system fonts if preferred font failed
     if font is None:
-        font = pygame.font.Font(None, 60)
+        fonts_to_try = []
+
+        if is_windows:
+            fonts_to_try = [
+                (r"C:\Windows\Fonts\seguisym.ttf", 60),
+                (None, 60),
+            ]
+
+        elif is_linux:
+            fonts_to_try = [
+                ("/usr/share/fonts/TTF/DejaVuSans.ttf", 60),
+                ("/usr/share/fonts/noto/NotoSansSymbols-Regular.ttf", 60),
+                (None, 60),
+            ]
+
+        for font_path, size in fonts_to_try:
+            try:
+                f = pygame.font.Font(font_path, size)
+                if font_can_render_chess(f):
+                    font = f
+                    print(f"✓ Loaded fallback font: {font_path or 'default'}")
+                    break
+            except Exception:
+                pass
+
+        if font is None:
+            font = pygame.font.Font(None, 60)
+            print("⚠ Using default pygame font (chess symbols may not display correctly)")
 
 
     for key, unicode_char in piece_map.items():
