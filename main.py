@@ -54,6 +54,7 @@ ANIMATION_SPEED = 8  # Higher = faster animation
 INFO_PANEL_WIDTH = 200
 FULL_WIDTH = BOARD_SIZE + INFO_PANEL_WIDTH
 UI_FONT_SIZE = 14  # Base UI_FONT_SIZE for interface fonts
+SPLASH_SCREEN_IMAGE = "img/1.png"  # Path to splash screen image
 
 # Menu colors
 MENU_BG = (50, 50, 50)
@@ -806,6 +807,239 @@ def draw_last_move(surface, move, flipped=False):
         last_move_surface.fill((255, 255, 100, 50))
         surface.blit(last_move_surface, (from_col * SQUARE_SIZE, from_row * SQUARE_SIZE + MENU_BAR_HEIGHT))
         surface.blit(last_move_surface, (to_col * SQUARE_SIZE, to_row * SQUARE_SIZE + MENU_BAR_HEIGHT))
+
+# Splash Screen
+class SplashScreen:
+    def __init__(self):
+        self.start_time = pygame.time.get_ticks()
+        self.duration = 2000  # 2 seconds
+        self.fade_duration = 500  # Fade in/out duration
+        
+        # Load splash screen image
+        self.image = None
+        self.image_surface = None
+        try:
+            if os.path.exists(SPLASH_SCREEN_IMAGE):
+                self.image = pygame.image.load(SPLASH_SCREEN_IMAGE)
+                # Scale image to fit screen while maintaining aspect ratio
+                img_width, img_height = self.image.get_size()
+                screen_width, screen_height = FULL_WIDTH, BOARD_SIZE + MENU_BAR_HEIGHT
+                
+                # Calculate scaling to fit screen
+                scale_w = screen_width / img_width
+                scale_h = screen_height / img_height
+                scale = min(scale_w, scale_h)
+                
+                new_width = int(img_width * scale)
+                new_height = int(img_height * scale)
+                self.image_surface = pygame.transform.scale(self.image, (new_width, new_height))
+                print(f"✓ Loaded splash screen: {SPLASH_SCREEN_IMAGE}")
+            else:
+                print(f"⚠ Splash screen image not found: {SPLASH_SCREEN_IMAGE}")
+        except Exception as e:
+            print(f"⚠ Could not load splash screen image: {e}")
+        
+    def update(self):
+        elapsed = pygame.time.get_ticks() - self.start_time
+        if elapsed >= self.duration:
+            return "menu"  # Transition to menu
+        return "splash"
+    
+    def draw(self, surface):
+        # Fade effect
+        elapsed = pygame.time.get_ticks() - self.start_time
+        if elapsed < self.fade_duration:
+            alpha = int(255 * (elapsed / self.fade_duration))
+        elif elapsed > self.duration - self.fade_duration:
+            alpha = int(255 * ((self.duration - elapsed) / self.fade_duration))
+        else:
+            alpha = 255
+        
+        # Background
+        surface.fill((20, 20, 30))
+        
+        # Draw splash image if available
+        if self.image_surface:
+            # Center the image
+            img_rect = self.image_surface.get_rect()
+            img_rect.center = (FULL_WIDTH // 2, (BOARD_SIZE + MENU_BAR_HEIGHT) // 2)
+            
+            # Apply fade effect
+            temp_surface = self.image_surface.copy()
+            temp_surface.set_alpha(alpha)
+            surface.blit(temp_surface, img_rect)
+        else:
+            # Fallback: simple text if image not found
+            title_font = load_interface_font(48)
+            title = title_font.render("PyChess", True, (255, 255, 255))
+            title_rect = title.get_rect(center=(FULL_WIDTH // 2, (BOARD_SIZE + MENU_BAR_HEIGHT) // 2))
+            title.set_alpha(alpha)
+            surface.blit(title, title_rect)
+
+# Main Menu Screen
+class MainMenu:
+    def __init__(self, stockfish_path):
+        self.stockfish_path = stockfish_path
+        self.selected_difficulty = "Medium"
+        self.player_color = chess.WHITE
+        self.slider_dragging = False
+        self.slider_value = 2  # Index in DIFFICULTY_SETTINGS (Medium)
+        
+        # Button dimensions
+        self.button_width = 200
+        self.button_height = 40
+        self.button_spacing = 15
+        self.start_y = (BOARD_SIZE + MENU_BAR_HEIGHT) // 2 - 150
+        
+        # Calculate button positions
+        self.button_x = FULL_WIDTH // 2 - self.button_width // 2
+        
+    def get_button_rect(self, index):
+        """Get rectangle for button at index"""
+        y = self.start_y + index * (self.button_height + self.button_spacing)
+        return pygame.Rect(self.button_x, y, self.button_width, self.button_height)
+    
+    def get_slider_rect(self):
+        """Get rectangle for difficulty slider"""
+        slider_y = self.start_y + 4 * (self.button_height + self.button_spacing) + 20
+        slider_width = 200
+        slider_height = 30
+        return pygame.Rect(FULL_WIDTH // 2 - slider_width // 2, slider_y, slider_width, slider_height)
+    
+    def get_color_button_rect(self, is_white):
+        """Get rectangle for white/black color selection"""
+        color_y = self.start_y + 5 * (self.button_height + self.button_spacing) + 30
+        button_width = 90
+        spacing = 10
+        if is_white:
+            x = FULL_WIDTH // 2 - button_width - spacing // 2
+        else:
+            x = FULL_WIDTH // 2 + spacing // 2
+        return pygame.Rect(x, color_y, button_width, self.button_height)
+    
+    def handle_click(self, pos):
+        """Handle mouse clicks on menu"""
+        # New Game button
+        if self.get_button_rect(0).collidepoint(pos):
+            return "new_game"
+        
+        # Load PGN button
+        if self.get_button_rect(1).collidepoint(pos):
+            return "load_pgn"
+        
+        # Exit button
+        if self.get_button_rect(2).collidepoint(pos):
+            return "exit"
+        
+        # Difficulty slider
+        slider_rect = self.get_slider_rect()
+        if slider_rect.collidepoint(pos):
+            self.slider_dragging = True
+            self.update_slider_value(pos[0])
+        
+        # Color selection buttons
+        if self.get_color_button_rect(True).collidepoint(pos):
+            self.player_color = chess.WHITE
+        elif self.get_color_button_rect(False).collidepoint(pos):
+            self.player_color = chess.BLACK
+        
+        return None
+    
+    def handle_mouse_up(self):
+        """Stop dragging slider"""
+        self.slider_dragging = False
+    
+    def handle_mouse_motion(self, pos):
+        """Update slider if dragging"""
+        if self.slider_dragging:
+            self.update_slider_value(pos[0])
+    
+    def update_slider_value(self, mouse_x):
+        """Update slider value based on mouse X position"""
+        slider_rect = self.get_slider_rect()
+        relative_x = mouse_x - slider_rect.left
+        ratio = max(0, min(1, relative_x / slider_rect.width))
+        self.slider_value = int(ratio * (len(DIFFICULTY_SETTINGS) - 1))
+        difficulty_names = list(DIFFICULTY_SETTINGS.keys())
+        self.selected_difficulty = difficulty_names[self.slider_value]
+    
+    def draw(self, surface):
+        """Draw the main menu"""
+        # Background
+        surface.fill((30, 30, 40))
+        
+        # Title
+        title_font = load_interface_font(36)
+        title = title_font.render("PyChess", True, (255, 255, 255))
+        title_rect = title.get_rect(center=(FULL_WIDTH // 2, 80))
+        surface.blit(title, title_rect)
+        
+        # Buttons
+        button_labels = ["New Game", "Load PGN", "Exit"]
+        mouse_pos = pygame.mouse.get_pos()
+        
+        for i, label in enumerate(button_labels):
+            rect = self.get_button_rect(i)
+            hover = rect.collidepoint(mouse_pos)
+            
+            # Button background
+            bg_color = MENU_HOVER if hover else MENU_BG
+            pygame.draw.rect(surface, bg_color, rect, border_radius=5)
+            pygame.draw.rect(surface, MENU_BORDER, rect, 2, border_radius=5)
+            
+            # Button text
+            font = load_interface_font(UI_FONT_SIZE + 2)
+            text = font.render(label, True, MENU_TEXT)
+            text_rect = text.get_rect(center=rect.center)
+            surface.blit(text, text_rect)
+        
+        # Difficulty slider
+        slider_rect = self.get_slider_rect()
+        slider_y = slider_rect.centery
+        
+        # Slider label
+        label_font = load_interface_font(UI_FONT_SIZE)
+        label = label_font.render("Difficulty:", True, MENU_TEXT)
+        surface.blit(label, (slider_rect.left, slider_rect.top - 20))
+        
+        # Slider track
+        pygame.draw.rect(surface, MENU_BG, slider_rect, border_radius=3)
+        pygame.draw.rect(surface, MENU_BORDER, slider_rect, 1, border_radius=3)
+        
+        # Slider handle
+        handle_x = slider_rect.left + int((self.slider_value / (len(DIFFICULTY_SETTINGS) - 1)) * slider_rect.width)
+        handle_rect = pygame.Rect(handle_x - 6, slider_y - 8, 12, 16)
+        pygame.draw.rect(surface, MENU_HOVER, handle_rect, border_radius=3)
+        pygame.draw.rect(surface, MENU_TEXT, handle_rect, 1, border_radius=3)
+        
+        # Difficulty text
+        diff_font = load_interface_font(UI_FONT_SIZE)
+        diff_text = diff_font.render(self.selected_difficulty, True, MENU_TEXT)
+        diff_rect = diff_text.get_rect(center=(slider_rect.centerx, slider_rect.bottom + 15))
+        surface.blit(diff_text, diff_rect)
+        
+        # Color selection
+        # color_label = label_font.render("Play as:", True, MENU_TEXT)
+        # surface.blit(color_label, (slider_rect.left, slider_rect.bottom + 45))
+        
+        # White/Black buttons
+        for is_white in [True, False]:
+            rect = self.get_color_button_rect(is_white)
+            hover = rect.collidepoint(mouse_pos)
+            selected = (is_white and self.player_color == chess.WHITE) or (not is_white and self.player_color == chess.BLACK)
+            
+            bg_color = MENU_HOVER if hover else MENU_BG
+            if selected:
+                bg_color = (70, 130, 180)  # Highlight selected
+            
+            pygame.draw.rect(surface, bg_color, rect, border_radius=5)
+            pygame.draw.rect(surface, MENU_BORDER, rect, 2, border_radius=5)
+            
+            color_text = "White" if is_white else "Black"
+            font = load_interface_font(UI_FONT_SIZE)
+            text = font.render(color_text, True, MENU_TEXT)
+            text_rect = text.get_rect(center=rect.center)
+            surface.blit(text, text_rect)
 
 # Animation class for smooth piece movement
 class PieceAnimation:
@@ -1583,82 +1817,157 @@ def main():
         return
     
     clock = pygame.time.Clock()
-    game = ChessGame(STOCKFISH_PATH)
-    running = True
     
-    print("=== Chess Game Started ===")
-    print("Press 'H' for hint")
-    print("Click pieces to move")
-    print("Use menu bar for options")
-    print("=========================")
+    # State management
+    state = "splash"  # splash -> menu -> game
+    splash_screen = SplashScreen()
+    main_menu = MainMenu(STOCKFISH_PATH)
+    game = None  # Will be created when starting a game
+    
+    running = True
     
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:  # Left click
-                    # Check if hint button clicked (in menu bar)
-                    if hasattr(game, 'hint_button_rect') and game.hint_button_rect and game.hint_button_rect.collidepoint(event.pos):
-                        game.get_hint()
-                        continue
-                    
-                    # First check if clicking in menu area
-                    if game.menu_bar.handle_click(event.pos):
-                        continue
-                    
-                    # Close dialog on click
-                    if game.showing_dialog:
-                        game.showing_dialog = False
-                        continue
-                    
-                    # Handle board clicks
-                    game.handle_click(event.pos)
-            elif event.type == pygame.MOUSEMOTION:
-                # Handle menu hover for switching between open menus
-                game.menu_bar.handle_hover(event.pos)
-            elif event.type == pygame.KEYDOWN:
-                # Close dialog on Escape
-                if event.key == pygame.K_ESCAPE:
-                    if game.showing_dialog:
-                        game.showing_dialog = False
-                    elif game.menu_bar.active_menu:
-                        game.menu_bar.active_menu = None
-                elif event.key == pygame.K_h:  # Press H for hint
-                    if not game.showing_dialog:
-                        game.get_hint()
-                elif event.key == pygame.K_f:  # Press F to flip board
-                    if not game.showing_dialog:
-                        game.flip_board()
-                        # Update menu checkbox
-                        for menu in game.menu_bar.menus:
-                            if menu.title == "Game":
-                                for item in menu.items:
-                                    if item.action == "flip_board":
-                                        item.checked = game.board_flipped
-                elif event.key == pygame.K_n and pygame.key.get_mods() & pygame.KMOD_CTRL:
-                    # Ctrl+N for new game
-                    game.new_game()
-                elif event.key == pygame.K_z and pygame.key.get_mods() & pygame.KMOD_CTRL:
-                    # Ctrl+Z for undo
-                    game.undo_move()
+            elif state == "splash":
+                # Splash screen - just wait for transition
+                pass
+            elif state == "menu":
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    if event.button == 1:  # Left click
+                        action = main_menu.handle_click(event.pos)
+                        if action == "new_game":
+                            # Start new game
+                            game = ChessGame(STOCKFISH_PATH)
+                            game.player_color = main_menu.player_color
+                            game.set_difficulty(main_menu.selected_difficulty)
+                            # Flip board if playing as black
+                            if game.player_color == chess.BLACK:
+                                game.board_flipped = True
+                                # Update menu checkbox
+                                for menu in game.menu_bar.menus:
+                                    if menu.title == "Game":
+                                        for item in menu.items:
+                                            if item.action == "flip_board":
+                                                item.checked = True
+                            state = "game"
+                            print("=== Chess Game Started ===")
+                            print("Press 'H' for hint")
+                            print("Click pieces to move")
+                            print("Use menu bar for options")
+                            print("=========================")
+                        elif action == "load_pgn":
+                            # Create game first, then load PGN
+                            temp_game = ChessGame(STOCKFISH_PATH)
+                            temp_game.player_color = main_menu.player_color
+                            temp_game.set_difficulty(main_menu.selected_difficulty)
+                            if temp_game.player_color == chess.BLACK:
+                                temp_game.board_flipped = True
+                            
+                            # Store original load_pgn to check if it succeeded
+                            # We'll check by seeing if moves were loaded
+                            moves_before = len(temp_game.game_moves)
+                            temp_game.load_pgn()
+                            moves_after = len(temp_game.game_moves)
+                            
+                            # Only transition if PGN was actually loaded (moves were added)
+                            if moves_after > moves_before or temp_game.game_moves:
+                                game = temp_game
+                                state = "game"
+                                print("=== Chess Game Started ===")
+                                print("Press 'H' for hint")
+                                print("Click pieces to move")
+                                print("Use menu bar for options")
+                                print("=========================")
+                            else:
+                                # User cancelled or error occurred, cleanup and stay in menu
+                                temp_game.cleanup()
+                        elif action == "exit":
+                            running = False
+                elif event.type == pygame.MOUSEBUTTONUP:
+                    main_menu.handle_mouse_up()
+                elif event.type == pygame.MOUSEMOTION:
+                    main_menu.handle_mouse_motion(event.pos)
+            elif state == "game":
+                # Existing game event handling
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    if event.button == 1:  # Left click
+                        # Check if hint button clicked (in menu bar)
+                        if hasattr(game, 'hint_button_rect') and game.hint_button_rect and game.hint_button_rect.collidepoint(event.pos):
+                            game.get_hint()
+                            continue
+                        
+                        # First check if clicking in menu area
+                        if game.menu_bar.handle_click(event.pos):
+                            continue
+                        
+                        # Close dialog on click
+                        if game.showing_dialog:
+                            game.showing_dialog = False
+                            continue
+                        
+                        # Handle board clicks
+                        game.handle_click(event.pos)
+                elif event.type == pygame.MOUSEMOTION:
+                    # Handle menu hover for switching between open menus
+                    game.menu_bar.handle_hover(event.pos)
+                elif event.type == pygame.KEYDOWN:
+                    # Close dialog on Escape
+                    if event.key == pygame.K_ESCAPE:
+                        if game.showing_dialog:
+                            game.showing_dialog = False
+                        elif game.menu_bar.active_menu:
+                            game.menu_bar.active_menu = None
+                    elif event.key == pygame.K_h:  # Press H for hint
+                        if not game.showing_dialog:
+                            game.get_hint()
+                    elif event.key == pygame.K_f:  # Press F to flip board
+                        if not game.showing_dialog:
+                            game.flip_board()
+                            # Update menu checkbox
+                            for menu in game.menu_bar.menus:
+                                if menu.title == "Game":
+                                    for item in menu.items:
+                                        if item.action == "flip_board":
+                                            item.checked = game.board_flipped
+                    elif event.key == pygame.K_n and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                        # Ctrl+N for new game
+                        game.new_game()
+                    elif event.key == pygame.K_z and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                        # Ctrl+Z for undo
+                        game.undo_move()
         
-        # Update animation
-        game.update_animation()
+        # Update state transitions
+        if state == "splash":
+            new_state = splash_screen.update()
+            if new_state == "menu":
+                state = "menu"
         
-        # Make engine move if it's the engine's turn (and no dialog open)
-        if not game.game_over and game.board.turn != game.player_color and not game.showing_dialog:
-            game.make_engine_move()
+        # Update game logic
+        if state == "game" and game:
+            # Update animation
+            game.update_animation()
+            
+            # Make engine move if it's the engine's turn (and no dialog open)
+            if not game.game_over and game.board.turn != game.player_color and not game.showing_dialog:
+                game.make_engine_move()
         
-        # Draw everything
-        game.draw(screen)
+        # Draw current state
+        if state == "splash":
+            splash_screen.draw(screen)
+        elif state == "menu":
+            main_menu.draw(screen)
+        elif state == "game" and game:
+            game.draw(screen)
         
         # Update display
         pygame.display.flip()
         clock.tick(60)
     
     # Cleanup
-    game.cleanup()
+    if game:
+        game.cleanup()
     pygame.quit()
     sys.exit()
 
