@@ -12,6 +12,22 @@ from datetime import datetime
 from tkinter import filedialog
 import tkinter as tk
 
+
+def resource_path(relative_path):
+    """
+    Get absolute path to resource, works for dev and for PyInstaller.
+    When running from PyInstaller bundle, files are extracted to sys._MEIPASS.
+    """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except AttributeError:
+        # Running in normal Python environment
+        base_path = os.path.abspath(".")
+    
+    return os.path.join(base_path, relative_path)
+
+
 # Initialize Pygame
 pygame.init()
 pygame.mixer.init()
@@ -20,8 +36,8 @@ pygame.mixer.init()
 def load_sounds():
     sounds = {}
     try:
-        sounds['move'] = pygame.mixer.Sound('sfx/move.wav')
-        sounds['capture'] = pygame.mixer.Sound('sfx/capture.wav')
+        sounds['move'] = pygame.mixer.Sound(resource_path('sfx/move.wav'))
+        sounds['capture'] = pygame.mixer.Sound(resource_path('sfx/capture.wav'))
         # Adjust volume (0.0 to 1.0)
         sounds['move'].set_volume(0.5)
         sounds['capture'].set_volume(0.6)
@@ -54,8 +70,8 @@ ANIMATION_SPEED = 8  # Higher = faster animation
 INFO_PANEL_WIDTH = 200
 FULL_WIDTH = BOARD_SIZE + INFO_PANEL_WIDTH
 UI_FONT_SIZE = 14  # Base UI_FONT_SIZE for interface fonts
-SPLASH_SCREEN_IMAGE = "img/4.jpg"  # Path to splash screen image
-MENU_BG_IMAGE = "img/5.jpg"  # Path to splash screen image
+SPLASH_SCREEN_IMAGE = resource_path("img/4.jpg")  # Path to splash screen image
+MENU_BG_IMAGE = resource_path("img/5.jpg")  # Path to menu background image
 
 
 # Menu colors
@@ -373,11 +389,11 @@ def load_interface_font(size):
         
         # Try fonts from fonts folder first
         interface_fonts_to_try = [
-            "fonts/DejaVuSans.ttf",
-            "fonts/LiberationSans-Regular.ttf",
-            "fonts/Ubuntu-Regular.ttf",
-            "fonts/OpenSans-Regular.ttf",
-            "fonts/Roboto-Regular.ttf",
+            resource_path("fonts/DejaVuSans.ttf"),
+            resource_path("fonts/LiberationSans-Regular.ttf"),
+            resource_path("fonts/Ubuntu-Regular.ttf"),
+            resource_path("fonts/OpenSans-Regular.ttf"),
+            resource_path("fonts/Roboto-Regular.ttf"),
         ]
         
         for font_path in interface_fonts_to_try:
@@ -498,19 +514,19 @@ def load_pieces():
     font = None
     
     try:
-        preferred_font_path = "fonts/chess_merida_unicode.ttf"
+        preferred_font_path = resource_path("fonts/chess_merida_unicode.ttf")
         test_font = pygame.font.Font(preferred_font_path, 60)
         if font_can_render_chess(test_font):
             font = test_font
             print(f"Loaded preferred font: {preferred_font_path}")
         else:
-            preferred_font_path = "fonts/LEIPFONT.ttf"
+            preferred_font_path = resource_path("fonts/LEIPFONT.ttf")
             test_font = pygame.font.Font(preferred_font_path, 60)
             if font_can_render_chess(test_font):
                 font = test_font
                 print(f"Loaded preferred font: {preferred_font_path}")
             else:
-                preferred_font_path = "fonts/Alpha.ttf"
+                preferred_font_path = resource_path("fonts/Alpha.ttf")
                 test_font = pygame.font.Font(preferred_font_path, 60)
                 if font_can_render_chess(test_font):
                     font = test_font
@@ -527,12 +543,14 @@ def load_pieces():
 
         if is_windows:
             fonts_to_try = [
+                (resource_path("fonts/DejaVuSans.ttf"), 60),
                 (r"C:\Windows\Fonts\seguisym.ttf", 60),
                 (None, 60),
             ]
 
         elif is_linux:
             fonts_to_try = [
+                (resource_path("fonts/DejaVuSans.ttf"), 60),
                 ("/usr/share/fonts/TTF/DejaVuSans.ttf", 60),
                 ("/usr/share/fonts/noto/NotoSansSymbols-Regular.ttf", 60),
                 (None, 60),
@@ -1859,9 +1877,12 @@ class ChessGame:
 # Main game loop
 def main():
     if is_windows:
-        STOCKFISH_PATH = "engine\stockfish\win\stockfish-windows-x86-64-avx2.exe"
+        STOCKFISH_PATH = resource_path("engine/stockfish/win/stockfish-windows-x86-64-avx2.exe")
     elif is_linux:
-        STOCKFISH_PATH = "engine/stockfish/linux/stockfish-ubuntu-x86-64-avx2"
+        STOCKFISH_PATH = resource_path("engine/stockfish/linux/stockfish-ubuntu-x86-64-avx2")
+    else:
+        print("Unsupported operating system")
+        return
     
     # Check if stockfish exists
     if not Path(STOCKFISH_PATH).exists():
