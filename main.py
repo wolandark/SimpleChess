@@ -53,6 +53,7 @@ MOVE_HINT = (0, 255, 0, 64)
 ANIMATION_SPEED = 8  # Higher = faster animation
 INFO_PANEL_WIDTH = 200
 FULL_WIDTH = BOARD_SIZE + INFO_PANEL_WIDTH
+UI_FONT_SIZE = 14  # Base UI_FONT_SIZE for interface fonts
 
 # Menu colors
 MENU_BG = (50, 50, 50)
@@ -95,7 +96,7 @@ class Menu:
 class MenuBar:
     def __init__(self, game):
         self.game = game
-        self.font = pygame.font.Font(None, 22)
+        self.font = load_interface_font(UI_FONT_SIZE)
         self.menus = []
         self.active_menu = None
         self.setup_menus()
@@ -348,6 +349,107 @@ class MenuBar:
             return self.active_menu.dropdown_rect.collidepoint(pos)
         return False
 
+def load_interface_font(size):
+    """
+    Load interface font with fallback support.
+    Tries fonts from fonts/ folder first, then system fonts.
+    Returns a pygame Font object of the specified size.
+    
+    To use a custom interface font, download one of these free fonts and place it in fonts/:
+    - DejaVu Sans: https://dejavu-fonts.github.io/Download.html
+    - Liberation Sans: https://github.com/liberationfonts/liberation-fonts/releases
+    - Ubuntu: https://fonts.google.com/specimen/Ubuntu
+    - Open Sans: https://fonts.google.com/specimen/Open+Sans
+    - Roboto: https://fonts.google.com/specimen/Roboto
+    
+    The font will be automatically detected if named correctly (e.g., DejaVuSans.ttf).
+    """
+    # Cache the base font path to avoid reloading
+    if not hasattr(load_interface_font, '_base_font_path'):
+        load_interface_font._base_font_path = None
+        
+        # Try fonts from fonts folder first
+        interface_fonts_to_try = [
+            "fonts/DejaVuSans.ttf",
+            "fonts/LiberationSans-Regular.ttf",
+            "fonts/Ubuntu-Regular.ttf",
+            "fonts/OpenSans-Regular.ttf",
+            "fonts/Roboto-Regular.ttf",
+        ]
+        
+        for font_path in interface_fonts_to_try:
+            try:
+                # Test if font can be loaded
+                test_font = pygame.font.Font(font_path, 12)
+                test_surface = test_font.render("Test", True, (255, 255, 255))
+                if test_surface.get_width() > 0:  # Font loaded successfully
+                    load_interface_font._base_font_path = font_path
+                    print(f"Loaded interface font: {font_path}")
+                    break
+            except Exception:
+                continue
+        
+        # Fall back to system fonts
+        if load_interface_font._base_font_path is None:
+            system_fonts_to_try = []
+            
+            if is_windows:
+                system_fonts_to_try = [
+                    "segoeui",
+                    "arial",
+                    "tahoma",
+                    None,  # Default pygame font
+                ]
+            elif is_linux:
+                system_fonts_to_try = [
+                    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                    "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+                    "dejavusans",
+                    "liberationsans",
+                    None,  # Default pygame font
+                ]
+            
+            for font_name in system_fonts_to_try:
+                try:
+                    if font_name is None:
+                        test_font = pygame.font.Font(None, 20)
+                    elif font_name.startswith("/"):
+                        # Absolute path
+                        test_font = pygame.font.Font(font_name, 20)
+                    else:
+                        # System font name
+                        test_font = pygame.font.SysFont(font_name, 20)
+                    
+                    test_surface = test_font.render("Test", True, (255, 255, 255))
+                    if test_surface.get_width() > 0:
+                        load_interface_font._base_font_path = font_name
+                        print(f"Loaded interface font: {font_name or 'default pygame font'}")
+                        break
+                except Exception:
+                    continue
+            
+            # Last resort: default pygame font
+            if load_interface_font._base_font_path is None:
+                load_interface_font._base_font_path = None
+                print("Using default pygame font for interface")
+    
+    # Create font of requested size
+    base_path = load_interface_font._base_font_path
+    try:
+        if base_path is None:
+            return pygame.font.Font(None, size)
+        elif base_path.startswith("/") or base_path.startswith("fonts/"):
+            # File path
+            return pygame.font.Font(base_path, size)
+        else:
+            # System font name
+            return pygame.font.SysFont(base_path, size)
+    except Exception:
+        # Fallback to default if something goes wrong
+        return pygame.font.Font(None, size)
+
 def load_pieces():
     pieces = {}
     # piece_map = {
@@ -438,7 +540,7 @@ def load_pieces():
                 f = pygame.font.Font(font_path, size)
                 if font_can_render_chess(f):
                     font = f
-                    print(f"✓ Loaded fallback font: {font_path or 'default'}")
+                    print(f"Loaded fallback font: {font_path or 'default'}")
                     break
             except Exception:
                 pass
@@ -525,12 +627,12 @@ def draw_board(surface, flipped=False, show_coords=True):
     
     # Draw coordinates if enabled
     if show_coords:
-        coord_font = pygame.font.Font(None, 18)
+        coord_font = load_interface_font(UI_FONT_SIZE)
         for i in range(8):
             # File letters (a-h) at bottom
             file_letter = chr(ord('a') + i) if not flipped else chr(ord('h') - i)
             file_text = coord_font.render(file_letter, True, (100, 100, 100))
-            surface.blit(file_text, (i * SQUARE_SIZE + SQUARE_SIZE - 12, BOARD_SIZE + MENU_BAR_HEIGHT - 14))
+            surface.blit(file_text, (i * SQUARE_SIZE + SQUARE_SIZE - 12, BOARD_SIZE + MENU_BAR_HEIGHT - UI_FONT_SIZE))
             
             # Rank numbers (1-8) on left
             rank_num = str(8 - i) if not flipped else str(i + 1)
@@ -650,7 +752,7 @@ def draw_hint_button(surface, hint_active=False):
     pygame.draw.rect(surface, MENU_BORDER, button_rect, 1, border_radius=4)
     
     # Draw lightbulb icon using Unicode character
-    font = pygame.font.SysFont('segoeuisymbol', 18)
+    font = load_interface_font(UI_FONT_SIZE)
     icon = font.render("💡", True, (255, 220, 50) if not hint_active else (80, 60, 0))
     icon_rect = icon.get_rect(center=button_rect.center)
     surface.blit(icon, icon_rect)
@@ -659,7 +761,7 @@ def draw_hint_button(surface, hint_active=False):
 
 # Draw hint text overlay on board
 def draw_hint_text(surface):
-    font = pygame.font.Font(None, 20)
+    font = load_interface_font(UI_FONT_SIZE)
     # Semi-transparent background for text
     text = font.render("Best move shown in purple (H to toggle)", True, (255, 0, 255))
     text_bg = pygame.Surface((text.get_width() + 10, text.get_height() + 6), pygame.SRCALPHA)
@@ -1194,12 +1296,12 @@ class ChessGame:
         pygame.draw.rect(surface, (100, 100, 100), (dialog_x, dialog_y, dialog_width, dialog_height), 2, border_radius=8)
         
         # Title
-        title_font = pygame.font.Font(None, 28)
+        title_font = load_interface_font(UI_FONT_SIZE)
         title = title_font.render(self.dialog_title, True, (255, 255, 255))
         surface.blit(title, (dialog_x + 15, dialog_y + 15))
         
         # Content
-        content_font = pygame.font.Font(None, 22)
+        content_font = load_interface_font(UI_FONT_SIZE)
         y = dialog_y + 45
         for line in self.dialog_text:
             text = content_font.render(line, True, (200, 200, 200))
@@ -1213,17 +1315,17 @@ class ChessGame:
         pygame.draw.rect(surface, (40, 40, 40), panel_rect)
         
         # Title
-        font_title = pygame.font.Font(None, 28)
+        font_title = load_interface_font(UI_FONT_SIZE)
         title = font_title.render("Move History", True, (255, 255, 255))
         surface.blit(title, (BOARD_SIZE + 10, MENU_BAR_HEIGHT + 10))
         
         # Show difficulty
-        font_small = pygame.font.Font(None, 18)
+        font_small = load_interface_font(UI_FONT_SIZE)
         diff_text = font_small.render(f"Difficulty: {self.difficulty}", True, (150, 150, 150))
         surface.blit(diff_text, (BOARD_SIZE + 10, MENU_BAR_HEIGHT + 35))
         
         # Draw moves
-        font_moves = pygame.font.Font(None, 20)
+        font_moves = load_interface_font(UI_FONT_SIZE)
         y_offset = MENU_BAR_HEIGHT + 60
         for i, move_text in enumerate(self.move_history[-12:]):  # Show last 12 moves
             color = (255, 255, 255) if i == len(self.move_history[-12:]) - 1 else (180, 180, 180)
