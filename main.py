@@ -751,11 +751,29 @@ def draw_hint_button(surface, hint_active=False):
     pygame.draw.rect(surface, bg_color, button_rect, border_radius=4)
     pygame.draw.rect(surface, MENU_BORDER, button_rect, 1, border_radius=4)
     
-    # Draw lightbulb icon using Unicode character
-    font = load_interface_font(UI_FONT_SIZE)
-    icon = font.render("💡", True, (255, 220, 50) if not hint_active else (80, 60, 0))
-    icon_rect = icon.get_rect(center=button_rect.center)
-    surface.blit(icon, icon_rect)
+    # Draw hint icon as a simple lightbulb shape
+    center = button_rect.center
+    icon_color = (255, 220, 50) if not hint_active else (150, 150, 150)
+
+
+    # # Draw lightbulb icon using Unicode character
+    # font = load_interface_font(UI_FONT_SIZE)
+    # # icon = font.render("💡", True, (255, 220, 50) if not hint_active else (80, 60, 0))
+    # # icon = font.render("\U0001F4A1")
+    # icon = font.render("\U0001F4A1", True, (255, 220, 50) if not hint_active else (80, 60, 0))
+
+
+    # icon_rect = icon.get_rect(center=button_rect.center)
+    # surface.blit(icon, icon_rect)
+
+    # Draw lightbulb: circle for bulb, rectangle for base
+    # Bulb (circle)
+    pygame.draw.circle(surface, icon_color, (center[0], center[1] - 2), 5, 2)
+    # Base (small rectangle)
+    base_rect = pygame.Rect(center[0] - 3, center[1] + 3, 6, 2)
+    pygame.draw.rect(surface, icon_color, base_rect)
+    # Highlight dot
+    pygame.draw.circle(surface, icon_color, (center[0], center[1] - 2), 1)
     
     return button_rect
 
