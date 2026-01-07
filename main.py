@@ -1858,11 +1858,10 @@ class ChessGame:
     
 # Main game loop
 def main():
-    # CHANGE THIS PATH to where you extracted stockfish.exe
     if is_windows:
-        STOCKFISH_PATH = r"C:\Users\woland\Downloads\stockfish-windows-x86-64-avx2\stockfish\stockfish-windows-x86-64-avx2.exe"
+        STOCKFISH_PATH = "engine\stockfish\win\stockfish-windows-x86-64-avx2.exe"
     elif is_linux:
-        STOCKFISH_PATH = "/home/woland/pychess/stockfish/stockfish-ubuntu-x86-64-avx2"
+        STOCKFISH_PATH = "engine/stockfish/linux/stockfish-ubuntu-x86-64-avx2"
     
     # Check if stockfish exists
     if not Path(STOCKFISH_PATH).exists():
