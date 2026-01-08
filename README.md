@@ -235,3 +235,16 @@ A: Try it and see. If you like clean interfaces and just playing chess, probably
 **SimpleChess** - *Because chess is complicated enough.*
 
 </div>
+
+---
+
+## To Do:
+- Issues:
+  - improve tk file picker and mouse support
+  - small menu fonts in windows
+- Features:
+  - Implement check visuals and sound
+  - various chess board colors
+  - change pieces glyphs in game
+- score board and sqlite db
+- package for linux distros
