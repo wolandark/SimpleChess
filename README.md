@@ -145,7 +145,9 @@ Because they work. Because they're reliable. Because I wanted to make a chess ga
 
 <img width="839" height="669" alt="image" src="https://github.com/user-attachments/assets/7a49b007-9ac6-4c9e-aa4a-d1e22500600d" />
 
-*The entire interface. That's it. That's the app.*
+*The entire interface. That's it. That's the app.* 
+
+Yes there is a hint system too, accessed by `h` or clicking on the light bulb 
 
 ---
 
@@ -204,10 +206,6 @@ Distributed under the MIT License. See `LICENSE` for more information.
 <div align="center">
 
 ### If SimpleChess saved you from another ugly chess program, consider starring this repo
-
-**Made with ♟️ by someone who just wanted to play chess**
-
-[⬆ Back to Top](#simplechess-️)
 
 </div>
 
